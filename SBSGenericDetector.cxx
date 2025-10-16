@@ -1290,6 +1290,7 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
   if(fModeTDC == SBSModeTDC::kTDC )  {
    // std::cout << "**** time ordering hits *****" << std::endl;
     for(Int_t ihit = 0; ihit < nhit; ihit++) {
+	    std::cout << "******* filling c1 TDCHits structure ****" << std::endl;
       TDCHits c1 = {evdata.GetRawData(d->crate, d->slot, chan, ihit),
 	      evdata.GetData(d->crate, d->slot, chan, ihit),
 	      evdata.GetData(d->crate, d->slot, chan, ihit)};
