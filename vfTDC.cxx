@@ -28,7 +28,7 @@ namespace Decoder {
 
   vfTDCModule::vfTDCModule(Int_t crate, Int_t slot)
     : VmeModule(crate, slot), fNumHits(NTDCCHAN), fTdcData(NTDCCHAN*MAXHIT),
-      fTdcOpt(NTDCCHAN*MAXHIT), slot_data(nullptr)
+      fTdcOpt(NTDCCHAN*MAXHIT), fTdcFine(NTDCCHAN*MAXHIT), slot_data(nullptr)
   {
     vfTDCModule::Init();
   }
@@ -38,6 +38,7 @@ namespace Decoder {
     fNumHits.resize(NTDCCHAN);
     fTdcData.resize(NTDCCHAN*MAXHIT);
     fTdcOpt.resize(NTDCCHAN*MAXHIT);
+    fTdcFine.resize(NTDCCHAN*MAXHIT);
     Clear();
     IsInit = true;
     fName = "vfTDC Module";
@@ -184,7 +185,8 @@ namespace Decoder {
 		tdc_data.chan = group*32 + chan;
 	}
 
-        tdc_data.raw = coarse*4000 + two_ns*2000 + fine*2000/124.87; // this should be the time in ps (from Tritium code)
+        tdc_data.raw = coarse*4000 + two_ns*2000 + fine*2000/124.50; // this should be the time in ps (from Tritium code)
+	tdc_data.fine = fine;
 	// subtract off rolling trigger time
 	//cout << "Corrected TDC raw = " << tdc_data.raw << endl;
 	
@@ -234,6 +236,7 @@ namespace Decoder {
            fNumHits[tdc_data.chan] < MAXHIT) {
           fTdcData[tdc_data.chan * MAXHIT + fNumHits[tdc_data.chan]] = tdc_data.raw;
           fTdcOpt[tdc_data.chan * MAXHIT + fNumHits[tdc_data.chan]++] = tdc_data.opt;
+          fTdcFine[tdc_data.chan * MAXHIT + fNumHits[tdc_data.chan]++] = tdc_data.fine;
         }
         if (tdc_data.status != SD_OK ) return -1;
       }
@@ -262,6 +265,13 @@ namespace Decoder {
     UInt_t idx = chan * MAXHIT + hit;
     if( idx > MAXHIT * NTDCCHAN ) return 0;
     return fTdcOpt[idx];
+  }
+  
+  UInt_t vfTDCModule::GetFine( UInt_t chan, UInt_t hit ) const {
+    if( hit >= fNumHits[chan] ) return 0;
+    UInt_t idx = chan * MAXHIT + hit;
+    if( idx > MAXHIT * NTDCCHAN ) return 0;
+    return fTdcFine[idx];
   }
   
   void vfTDCModule::Clear( Option_t* ) {

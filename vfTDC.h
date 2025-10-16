@@ -31,6 +31,7 @@ namespace Decoder {
     virtual Int_t Decode(const UInt_t *p);
     virtual UInt_t GetData( UInt_t chan, UInt_t hit) const;
     virtual UInt_t GetOpt( UInt_t chan, UInt_t hit) const;
+    virtual UInt_t GetFine( UInt_t chan, UInt_t hit) const;
 
     // Loads slot data.  if you don't define this, the base class's method is used
     virtual UInt_t LoadSlot( THaSlotData *sldat, const UInt_t *evbuffer, const UInt_t *pstop );
@@ -42,6 +43,7 @@ namespace Decoder {
     std::vector<UInt_t> fNumHits;
     std::vector<UInt_t> fTdcData;  // Raw data
     std::vector<UInt_t> fTdcOpt;  // Edge flag =0 Leading edge, = 1 Trailing edge
+    std::vector<UInt_t> fTdcFine;  // Fine Time
 
     THaSlotData *slot_data;  // Need to fix if multi-threading becomes available
    
@@ -52,7 +54,7 @@ namespace Decoder {
         status(0) {}
       void clear() { memset(this, 0, sizeof(tdcData)); }
       Int_t glb_hdr_evno, glb_hdr_slno, evh_trig_num, ev_hdr_slno;
-      Int_t chan, raw , opt; 
+      Int_t chan, raw , opt, fine; 
       Long64_t trig_time_l,trig_time_h;
       Long64_t trig_time;
       Int_t status;

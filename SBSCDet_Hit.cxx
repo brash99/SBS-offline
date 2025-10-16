@@ -23,7 +23,8 @@ using namespace std;
 //_____________________________________________________________________________
 SBSCDet_Hit::SBSCDet_Hit(): 
   fPMTNum(-1), fRow(-1), fCol(-1), fLayer(-1),
-  fX(kBig), fY(kBig), fZ(kBig), fTDC_LE(kBig), fTDC_TE(kBig), fToT(kBig)
+  fX(kBig), fY(kBig), fZ(kBig), fTDC_LE(kBig), fTDC_TE(kBig), 
+  fToT(kBig), fTDC_Fine(kBig)
   //fFlag(0), fVeto(0) 
 {
   //fClustIndex = -1;
@@ -33,9 +34,9 @@ SBSCDet_Hit::SBSCDet_Hit():
 //_____________________________________________________________________________
 SBSCDet_Hit::SBSCDet_Hit( Int_t pmtnum, Int_t i, Int_t j, Int_t k,
 				    Double_t x, Double_t y, Double_t z, Double_t le, 
-				    Double_t te, Double_t tot ):
+				    Double_t te, Double_t tot, Double_t fine ):
   fPMTNum(pmtnum), fRow(i), fCol(j), fLayer(k),
-  fX(x), fY(y), fZ(z), fTDC_LE(le), fTDC_TE(te), fToT(tot)
+  fX(x), fY(y), fZ(z), fTDC_LE(le), fTDC_TE(te), fToT(tot), fTDC_Fine(fine)
   //fFlag(0), fVeto(0), tdcr_set(false), tdcf_set(false) 
 {
   //fClustIndex = -1;
@@ -69,6 +70,7 @@ void SBSCDet_Hit::Clear( Option_t *opt ){
   //
   fTDC_LE = kBig;
   fTDC_TE = kBig;
+  fTDC_Fine = kBig;
   fToT = kBig;
 }
 

@@ -68,6 +68,7 @@ namespace SBSData {
     SingleData le;  //< Leading edge time
     SingleData te; //< Trailing edge time
     SingleData ToT;   //< Time-over-Threshold (if trailing edge provided)
+    SingleData fine; //< fine time
     Int_t elemID; //< Element ID
     UInt_t TrigTime; //< F1 trigger time
  };
@@ -179,7 +180,7 @@ namespace SBSData {
       void SetTrigPhaseCorr( Double_t var ){ fTrigPhaseCorr = var; }
     
       // Process data sets raw value, ped-subtracted and calibrated data
-      virtual void Process(Int_t elemID, Double_t var, Double_t edge = 0);
+      virtual void Process(Int_t elemID, Double_t var, Double_t edge = 0, Double_t finetime = 0);
       virtual void ProcessSimple(Int_t elemID, Double_t var, Int_t nhit,UInt_t TrigTime);
 
       // Do we have TDC data for this event?

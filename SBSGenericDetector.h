@@ -50,6 +50,7 @@ namespace SBSModeTDC {
 struct TDCHits {
   UInt_t edge;
   UInt_t rawtime;
+  UInt_t finetime;
 };
 
 // This structure has output data when the user wants every hit to be stored
@@ -83,6 +84,7 @@ struct SBSGenericOutputData {
   std::vector<Int_t> t_mult;         //< [] TDC # of hits per channel
   std::vector<Double_t> t;         //< [] TDC (leading edge) time
   std::vector<Double_t> t_te;      //< [] TDC trailing edge time
+  std::vector<Double_t> t_fine;      //< [] TDC fine time
   std::vector<Double_t> t_ToT;     //< [] TDC Time-Over-Threshold
   // Waveform variables
   std::vector<Int_t> samps_elemID;      //< [] Element ID of samples
@@ -116,6 +118,7 @@ struct SBSGenericOutputData {
     t.clear();
     t_mult.clear();
     t_te.clear();
+    t_fine.clear();
     t_ToT.clear();
     nsamps.clear();
     sidx.clear();

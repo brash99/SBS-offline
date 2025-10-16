@@ -1004,6 +1004,7 @@ Int_t SBSGenericDetector::DefineVariables( EMode mode )
     if(fModeTDC != SBSModeTDC::kTDCSimple) {
       // We have trailing edge and Time-Over-Threshold info to store
       ve.push_back({"Ref.tdc_te","Ref Time Calibrated TDC trailing info","fRefGood.t_te"});
+      ve.push_back({"Ref.tdc_fine","Ref Time Calibrated TDC fine info","fRefGood.t_fine"});
       ve.push_back({"Ref.tdc_tot","Ref Time  Time Over Threshold","fRefGood.t_ToT"});
     }
     if(fStoreRawHits) {
@@ -1011,6 +1012,7 @@ Int_t SBSGenericDetector::DefineVariables( EMode mode )
       ve.push_back({ "Ref.hits.t",   "Ref Time All TDC leading edge times",  "fRefRaw.t" });
       if(fModeTDC != SBSModeTDC::kTDCSimple) {
         ve.push_back({ "Ref.hits.t_te",   "Ref Time All TDC trailing edge times",  "fRefRaw.t_te" });
+        ve.push_back({ "Ref.hits.t_fine",   "Ref Time All TDC trailing edge times",  "fRefRaw.t_fine" });
         ve.push_back({ "Ref.hits.t_tot",  "Ref Time All TDC Time-over-threshold",  "fRefRaw.t_ToT" });
       }
     }
@@ -1078,6 +1080,7 @@ Int_t SBSGenericDetector::DefineVariables( EMode mode )
     if(fModeTDC != SBSModeTDC::kTDCSimple) {
       // We have trailing edge and Time-Over-Threshold info to store
       ve.push_back({"tdc_te","Calibrated TDC trailing info","fGood.t_te"});
+      ve.push_back({"tdc_fine","Calibrated TDC fine info","fGood.t_fine"});
       ve.push_back({"tdc_tot","Time Over Threshold","fGood.t_ToT"});
     }
     if(fStoreRawHits) {
@@ -1085,6 +1088,7 @@ Int_t SBSGenericDetector::DefineVariables( EMode mode )
       ve.push_back({ "hits.t",   "All TDC leading edge times",  "fRaw.t" });
       if(fModeTDC != SBSModeTDC::kTDCSimple) {
         ve.push_back({ "hits.t_te",   "All TDC trailing edge times",  "fRaw.t_te" });
+        ve.push_back({ "hits.t_fine",   "All TDC trailing edge times",  "fRaw.t_fine" });
         ve.push_back({ "hits.t_tot",  "All TDC Time-over-threshold",  "fRaw.t_ToT" });
       }
     }
@@ -1286,9 +1290,13 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
   if(fModeTDC == SBSModeTDC::kTDC )  {
    // std::cout << "**** time ordering hits *****" << std::endl;
     for(Int_t ihit = 0; ihit < nhit; ihit++) {
-      TDCHits c1 = {evdata.GetRawData(d->crate, d->slot, chan, ihit),evdata.GetData(d->crate, d->slot, chan, ihit)};
+      TDCHits c1 = {evdata.GetRawData(d->crate, d->slot, chan, ihit),
+	      evdata.GetData(d->crate, d->slot, chan, ihit),
+	      evdata.GetData(d->crate, d->slot, chan, ihit)};
       //if (d->slot == 20) {
-	//	std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << " rawtime = " << c1.rawtime << std::endl;
+      		std::cout << "************ SBSGenericDetector TDCHits c1 contents **********" << std::endl;
+		std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << std::endl;
+		std::cout << " rawtime = " << c1.rawtime << " finetime = " << c1.finetime << " edge = " << c1.edge << std::endl;
       //}
       tdchit.push_back(c1);
     }
@@ -1363,6 +1371,7 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
   if(fIsMC)reftime = 1000.0;
   
   Int_t edge = 0;
+  Int_t finetime = 0;
   Int_t elemID=blk->GetID();
 
   for(Int_t ihit = 0; ihit < nhit; ihit++) {
@@ -1418,11 +1427,13 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
       if (LeadingEdge ==0) blk->TDC()->ProcessSimple(elemID,rawdata - reftime,ihit,TrigTime);
     } else {
       edge = tdchit[ihit].edge;
-      //           std::cout << ihit << " " << evdata.GetData(d->crate, d->slot, chan, ihit) - reftime << " " << edge << std::endl;
+      finetime = tdchit[ihit].finetime;
+      std::cout << "******************** SBSGenericDetector before TDC::Process() call ********************" << std::endl;
+      std::cout << ihit << " " << evdata.GetData(d->crate, d->slot, chan, ihit) - reftime << " " << edge << " " << finetime << std::endl;
       if (edge ==1 && ihit ==0) continue; // skip first hit if trailing edge
       // if (fModeTDC != SBSModeTDC::kTDCSimple && edge ==0 && ihit == nhit-1)  continue; // skip last hit if leading edge
       if( edge == 0 && ihit == nhit-1 ) continue; //skip last hit if leading edge (AJRP note: it is not possible to get into this IF block if fModeTDC is "kTDCsimple". Thus the commented statement above always evaluates false and defeats its own intended logic.)
-      blk->TDC()->Process(elemID,tdchit[ihit].rawtime - reftime, edge);
+      blk->TDC()->Process(elemID,tdchit[ihit].rawtime - reftime, edge, finetime);
     }
   }
 
@@ -1498,6 +1509,10 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
 	  
 	  //          fRefGood.t_te.push_back(hit.te.val);
 	  fRefGood.t_te.push_back(tempval);
+	  tempval = hit.fine.val;
+	  
+	  //          fRefGood.t_fine.push_back(hit.fine.val);
+	  fRefGood.t_fine.push_back(tempval);
           fRefGood.t_ToT.push_back(hit.ToT.val);
         }
 	
@@ -1541,6 +1556,7 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
         fRefGood.t.push_back(kBig);
         if(fModeTDC == SBSModeTDC::kTDC) {
           fRefGood.t_te.push_back(kBig);
+          fRefGood.t_fine.push_back(kBig);
           fRefGood.t_ToT.push_back(kBig);
         }
       }
@@ -1557,6 +1573,7 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
 	  fRefRaw.t.push_back(tempval);
 	  if(fModeTDC == SBSModeTDC::kTDC) { // has trailing info
 	    fRefRaw.t_te.push_back(hit.te.val);
+	    fRefRaw.t_fine.push_back(hit.te.val);
 	    fRefRaw.t_ToT.push_back(hit.ToT.val);
 	  }
 	}
@@ -1741,9 +1758,13 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
 
 	  //          fGood.t_te.push_back(hit.te.val);
 	  fGood.t_te.push_back( tempval );
+	  tempval = hit.fine.val;
+
+	  //          fGood.t_fine.push_back(hit.fine.val);
+	  fGood.t_fine.push_back( tempval );
 	  fGood.t_ToT.push_back(hit.ToT.val);
         }
-	//td::cout << "LE time = " << hit.le.val << "     TE time = " << hit.te.val << "     Tot = " << hit.ToT.val << std::endl;
+	std::cout << "LE time = " << hit.le.val << "     TE time = " << hit.te.val << "     Tot = " << hit.ToT.val << "    Fine = " << hit.fine.val << std::endl;
 
 	// if( fModeTDC == SBSModeTDC::kTDCSimple && hit.TrigTime != 0 ) {
 	//   std::cout << "F1 TDC TrigTime, (thischan, refchan, RFchan, thischan-refchan)=("
@@ -1775,6 +1796,7 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
         fGood.t_mult.push_back(0);
         if(fModeTDC == SBSModeTDC::kTDC) {
           fGood.t_te.push_back(kBig);
+          fGood.t_fine.push_back(kBig);
           fGood.t_ToT.push_back(kBig);
         }
       }
@@ -1786,6 +1808,7 @@ Int_t SBSGenericDetector::CoarseProcess(TClonesArray& )// tracks)
 	  fRaw.t.push_back(hit.le.val);
 	  if(fModeTDC == SBSModeTDC::kTDC) { // has trailing info
 	    fRaw.t_te.push_back(hit.te.val);
+	    fRaw.t_fine.push_back(hit.te.val);
 	    fRaw.t_ToT.push_back(hit.ToT.val);
 	  }
 	}

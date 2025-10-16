@@ -27,7 +27,7 @@ class SBSCDet_Hit : public TObject {
   SBSCDet_Hit(); 
   SBSCDet_Hit( Int_t pmtnum, Int_t i, Int_t j, Int_t k,//Int_t TDC, Int_t ToT
 		    Double_t x, Double_t y, Double_t z, 
-		    Double_t le, Double_t te, Double_t tot );
+		    Double_t le, Double_t te, Double_t tot, Double_t fine );
   virtual ~SBSCDet_Hit() {}
   
   virtual void    Clear( Option_t* opt);
@@ -46,6 +46,7 @@ class SBSCDet_Hit : public TObject {
   Double_t    GetZ()        const {return fZ;}
   Double_t    GetTDC_LE()     const {return fTDC_LE;}
   Double_t    GetTDC_TE()     const {return fTDC_TE;}
+  Double_t    GetTDC_Fine()     const {return fTDC_Fine;}
   Double_t    GetToT()     const {return fToT;}
   //Int_t      GetFlag()     const {return fFlag;}
   //Int_t      GetVeto()     const {return fVeto;}
@@ -63,6 +64,7 @@ class SBSCDet_Hit : public TObject {
   void       SetZ( Double_t z )         {fZ = z;}
   void       SetTDC_LE( Int_t le )       {fTDC_LE = le;}
   void       SetTDC_TE( Int_t te )       {fTDC_TE = te;}
+  void       SetTDC_Fine( Int_t fine )       {fTDC_Fine = fine;}
   void       SetToT( Int_t tot )       {fToT = tot;}
   //void       SetFlag( Int_t Flag )     {fFlag = Flag;}
   //void       SetVeto( Int_t Veto )     {fVeto = Veto;}
@@ -87,6 +89,7 @@ private:
   Double_t   fZ;      // Hit Z position in PMT matrix
   Double_t   fTDC_LE;      // LE Time from TDC
   Double_t   fTDC_TE;      // TE Time from TDC
+  Double_t   fTDC_Fine;      // Fine Time from TDC
   Double_t   fToT;      // Time over Threshold from TDC
   //Int_t     fFlag;   // ?
   //Int_t     fVeto;   // ?

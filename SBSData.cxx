@@ -73,15 +73,20 @@ namespace SBSData {
     hit->le.val = (val-fTDC.offset)*fTDC.cal;
     hit->te.raw = 0;
     hit->te.val = 0;
+    hit->fine.raw = 0;
+    hit->fine.val = 0;
     hit->ToT.raw=0;
     hit->ToT.val=0;
     fHasData = true;
   }
 
-  void TDC::Process(Int_t elemID, Double_t val, Double_t fedge)
+  void TDC::Process(Int_t elemID, Double_t val, Double_t fedge, Double_t ffinetime)
   {
     Int_t edge = int(fedge);
-    // std::cout << " tdc process " << val << " " << edge  << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< std::endl;
+    Int_t finetime = int(ffinetime);
+
+    std::cout << " tdc process " << val << " " << edge  << " " << finetime << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< std::endl;
+    
     if(edge < 0 || edge>1) {
       std::cerr << "Edge specified is not valid!" << std::endl;
       edge = 0;
@@ -101,6 +106,8 @@ namespace SBSData {
     } else {
       hit->te.raw = val;
       hit->te.val = (val-fTDC.offset)*fTDC.cal;
+      hit->fine.raw = finetime;
+      hit->fine.val = finetime;
     }
     if(fEdgeIdx[0] == fEdgeIdx[1]) { // Both leading and trailing edges now found
       hit->ToT.raw = hit->te.raw - hit->le.raw;
