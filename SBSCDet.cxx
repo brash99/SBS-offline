@@ -21,10 +21,10 @@ SBSCDet::SBSCDet( const char* name, const char* description,
   SetModeADC(SBSModeADC::kNone); // Default is No ADC, but can be re-enabled later
 
   fHits             = new TClonesArray("SBSCDet_Hit",200);
-  fHit_tmin 	    = 1000;
-  fHit_tmax	    = 3000; // 10ns to 30ns  units of TDC are 10's of picoseconds?
-  fHit_totmin 	    = 1800;
-  fHit_totmax	    = 4500; // 10ns to 30ns  units of TDC are 10's of picoseconds?
+  fHit_tmin 	    = 100;
+  fHit_tmax	    = 10000; // 1ns to 100ns  units of TDC are 10's of picoseconds?
+  fHit_totmin 	    = 100;
+  fHit_totmax	    = 10000; // 1ns to 100ns  units of TDC are 10's of picoseconds?
 
   Clear();
 }
