@@ -1290,9 +1290,9 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
    // std::cout << "**** time ordering hits *****" << std::endl;
     for(Int_t ihit = 0; ihit < nhit; ihit++) {
       TDCHits c1 = {evdata.GetRawData(d->crate, d->slot, chan, ihit),evdata.GetData(d->crate, d->slot, chan, ihit)};
-      //if (d->slot == 20) {
-	//	std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << " rawtime = " << c1.rawtime << std::endl;
-      //}
+      if (d->slot == 20) {
+		std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << " rawtime = " << c1.rawtime << std::endl;
+      }
       tdchit.push_back(c1);
     }
     std::sort(tdchit.begin(), tdchit.end(), [](const TDCHits& c1, const TDCHits& c2) {return c1.rawtime < c2.rawtime;});
@@ -1421,7 +1421,7 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
       if (LeadingEdge ==0) blk->TDC()->ProcessSimple(elemID,rawdata - reftime,ihit,TrigTime);
     } else {
       edge = tdchit[ihit].edge;
-      //           std::cout << ihit << " " << evdata.GetData(d->crate, d->slot, chan, ihit) - reftime << " " << edge << std::endl;
+                 //std::cout << ihit << " " << evdata.GetData(d->crate, d->slot, chan, ihit) - reftime << " " << edge << std::endl;
       if (edge ==1 && ihit ==0) continue; // skip first hit if trailing edge
       // if (fModeTDC != SBSModeTDC::kTDCSimple && edge ==0 && ihit == nhit-1)  continue; // skip last hit if leading edge
       if( edge == 0 && ihit == nhit-1 ) continue; //skip last hit if leading edge (AJRP note: it is not possible to get into this IF block if fModeTDC is "kTDCsimple". Thus the commented statement above always evaluates false and defeats its own intended logic.)

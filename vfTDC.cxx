@@ -142,7 +142,7 @@ namespace Decoder {
         } else {
           tdc_data.trig_time_h = *p & 0xFFFFFF;  // Event header trigger time high 24
 	  //std::cout << "High Trigger: Slot = " << tdc_data.glb_hdr_slno << "  Trigger Time H = " << tdc_data.trig_time_h << endl;
-	  tdc_data.trig_time = (((tdc_data.trig_time_h << 24) | tdc_data.trig_time_l)%1024)*4000 - 10000;
+	  tdc_data.trig_time = (((tdc_data.trig_time_h << 24) | tdc_data.trig_time_l)%1024)*4000 - 10000; //in ps, -10000 shift so times from 0 to 4us
 	  //std::cout << "Trigger: Slot = " << tdc_data.glb_hdr_slno << "  Trigger Time = " << dec << tdc_data.trig_time << endl;
         }
       }
@@ -184,8 +184,7 @@ namespace Decoder {
 		tdc_data.chan = group*32 + chan;
 	}
 
-        //tdc_data.raw = coarse*4000 + two_ns*2000 + fine*2000/124.87; // this should be the time in ps (from Tritium code)
-        tdc_data.raw = coarse*4000 + two_ns*2000 + fine*10.0; // this should be the time in ps (from Tritium code)
+        tdc_data.raw = coarse*4000 + two_ns*2000 + fine*10; // this should be the time in ps (from Tritium code)
 	// subtract off rolling trigger time
 	//cout << "Corrected TDC raw = " << tdc_data.raw << endl;
 	
@@ -218,8 +217,8 @@ namespace Decoder {
 		      << tdc_data.status << endl;
 #endif
 	 //if (tdc_data.ev_hdr_slno == 10 && tdc_data.chan >= 96 && tdc_data.chan <= 112) {
-	 /*if (tdc_data.ev_hdr_slno >= 20) {
-        	 //std::cout << std::endl;
+	 if (tdc_data.ev_hdr_slno >= 20) {
+        	 std::cout << std::endl;
 		 std::cout << "vfTDCModule:: MEASURED DATA >> data = " 
 	 	      << hex << *p << " >> channel = " << dec
 	 	      << tdc_data.chan << " >> slot = " << tdc_data.ev_hdr_slno << " >> edge = "
@@ -229,7 +228,7 @@ namespace Decoder {
 		      << original_raw << " >> trigtime = "
 		      << tdc_data.trig_time << std::endl;
 	 }
-	*/
+
 
         if(tdc_data.chan < NTDCCHAN &&
            fNumHits[tdc_data.chan] < MAXHIT) {
