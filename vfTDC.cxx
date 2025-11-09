@@ -185,6 +185,7 @@ namespace Decoder {
 	}
 
         tdc_data.raw = coarse*4000 + two_ns*2000 + fine*10; // this should be the time in ps (from Tritium code)
+        //tdc_data.raw = coarse*4000 + two_ns*2000 + fine*2000/127.0; // this should be the time in ps (from Tritium code)
 	// subtract off rolling trigger time
 	//cout << "Corrected TDC raw = " << tdc_data.raw << endl;
 	
