@@ -218,6 +218,7 @@ namespace Decoder {
 		      << tdc_data.status << endl;
 #endif
 	 //if (tdc_data.ev_hdr_slno == 10 && tdc_data.chan >= 96 && tdc_data.chan <= 112) {
+	 /*
 	 if (tdc_data.ev_hdr_slno >= 20) {
         	 std::cout << std::endl;
 		 std::cout << "vfTDCModule:: MEASURED DATA >> data = " 
@@ -229,6 +230,7 @@ namespace Decoder {
 		      << original_raw << " >> trigtime = "
 		      << tdc_data.trig_time << std::endl;
 	 }
+	 */
 
 
         if(tdc_data.chan < NTDCCHAN &&

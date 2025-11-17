@@ -1290,9 +1290,9 @@ Int_t SBSGenericDetector::DecodeTDC( const THaEvData& evdata,
    // std::cout << "**** time ordering hits *****" << std::endl;
     for(Int_t ihit = 0; ihit < nhit; ihit++) {
       TDCHits c1 = {evdata.GetRawData(d->crate, d->slot, chan, ihit),evdata.GetData(d->crate, d->slot, chan, ihit)};
-      if (d->slot == 20) {
-		std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << " rawtime = " << c1.rawtime << std::endl;
-      }
+      //if (d->slot == 20) {
+	//	std::cout << "slot = " << d->slot << " chan = " << chan << " hit = " << ihit << " crate = " << d->crate << " rawtime = " << c1.rawtime << std::endl;
+      //}
       tdchit.push_back(c1);
     }
     std::sort(tdchit.begin(), tdchit.end(), [](const TDCHits& c1, const TDCHits& c2) {return c1.rawtime < c2.rawtime;});

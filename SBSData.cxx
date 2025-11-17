@@ -126,8 +126,8 @@ namespace SBSData {
     if (hit->le.raw > 0 && hit->te.raw > 0 && hit->ToT.raw ==0) hit->ToT.raw = hit->te.raw - hit->le.raw;
     if (hit->le.val > 0 && hit->te.val > 0 && hit->ToT.val ==0) hit->ToT.val = hit->te.val - hit->le.val;
     
-	if (elemID == 2696) std::cout << " tdc process " << val << " " << edge  << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< " tdc LE " << hit->le.raw << " tdc TE " << hit->te.raw << " tdc TOT " << hit->ToT.raw << std::endl;
-    if (elemID == 2696) std::cout << " tdc process " << val << " " << edge  << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< " tdc LE val " << hit->le.val << " tdc TE val " << hit->te.val << " tdc TOT val" << hit->ToT.val << std::endl;
+	//if (elemID == 2696) std::cout << " tdc process " << val << " " << edge  << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< " tdc LE " << hit->le.raw << " tdc TE " << hit->te.raw << " tdc TOT " << hit->ToT.raw << std::endl;
+    //if (elemID == 2696) std::cout << " tdc process " << val << " " << edge  << " ftdc hits size = " <<fTDC.hits.size() << " hits in edge "  << fEdgeIdx[edge]<< " tdc LE val " << hit->le.val << " tdc TE val " << hit->te.val << " tdc TOT val" << hit->ToT.val << std::endl;
   }
 
   void TDC::Clear()
