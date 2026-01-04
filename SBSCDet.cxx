@@ -237,7 +237,7 @@ Int_t SBSCDet::CoarseProcess( TClonesArray& tracks )
       x = (fElements[fGood.TDCelemID[k]])->GetX();
       y = (fElements[fGood.TDCelemID[k]])->GetY();
       z = (fElements[fGood.TDCelemID[k]])->GetZ();
-      std::cout << "PMT = " << fGood.TDCelemID[k] << " X = " << x << " Y = " << y << " Z = " << z << " LE = " << fGood.t[k] << " TE = " << fGood.t_te[k] << " ToT = " << fGood.t_ToT[k] << std::endl;
+      //std::cout << "PMT = " << fGood.TDCelemID[k] << " X = " << x << " Y = " << y << " Z = " << z << " LE = " << fGood.t[k] << " TE = " << fGood.t_te[k] << " ToT = " << fGood.t_ToT[k] << std::endl;
 
       the_hit->SetX(x);
       the_hit->SetY(y);
