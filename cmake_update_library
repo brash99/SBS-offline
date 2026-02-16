@@ -5,7 +5,5 @@ cd ${JLAB_INSTALL_DIR}; source setup_cdet_pd.sh
 cd ${JLAB_INSTALL_DIR}/git-repo/sbs_devel/SBS-offline
 cd ../build
 pwd
-rm -fr *
-cmake -DCMAKE_INSTALL_PREFIX=../install ../SBS-offline
 make install
 cd ../SBS-offline
