@@ -3,7 +3,16 @@ source ~/.bash_profile
 cd ${JLAB_INSTALL_DIR}; source setup_cdet_pd.sh
 cd ${JLAB_INSTALL_DIR}/git-repo/sbs_devel/SBS-offline
 cd ../build
+echo "Current build directory: "
 pwd
+# Ask the user if they wish to continue with the build process
+read -p "This will build the SBS-offline software from scratch,
+deleting all files from this build directory. Do you wish
+to continue? (y/n) " answer
+if [[ "$answer" != "y" ]]; then
+    echo "Build process aborted."
+    exit 1
+fi
 rm -fr *
 cmake -DCMAKE_INSTALL_PREFIX=../install ../SBS-offline
 make install -j8
