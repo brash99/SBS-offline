@@ -2,6 +2,7 @@
 source ~/.bash_profile
 cd ${JLAB_INSTALL_DIR}; source setup_cdet_pd.sh
 cd ${JLAB_INSTALL_DIR}/git-repo/sbs_devel/SBS-offline
+mkdir -p ../build ../install
 cd ../build
 echo "Current build directory: "
 pwd
@@ -14,6 +15,6 @@ if [[ "$answer" != "y" ]]; then
     exit 1
 fi
 rm -fr *
-cmake -DCMAKE_INSTALL_PREFIX=../install ../SBS-offline
+cmake -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_BUILD_TYPE=RelWithDebInfo ../SBS-offline
 make install -j8
 cd ../SBS-offline
