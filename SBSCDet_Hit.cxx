@@ -46,14 +46,16 @@ SBSCDet_Hit::SBSCDet_Hit( Int_t pmtnum, Int_t i, Int_t j, Int_t k,
 
 Int_t SBSCDet_Hit::Compare( const TObject* theOtherHit ) const
 {
-  if (fTDC_LE < static_cast<const SBSCDet_Hit*>( theOtherHit )->fTDC_LE ||
-      fTDC_TE < static_cast<const SBSCDet_Hit*>( theOtherHit )->fTDC_TE)
+  const auto* other = static_cast<const SBSCDet_Hit*>( theOtherHit );
+  if (fTDC_LE < other->fTDC_LE)
     return -1;
-  if (fTDC_LE > static_cast<const SBSCDet_Hit*>( theOtherHit )->fTDC_LE ||
-      fTDC_TE > static_cast<const SBSCDet_Hit*>( theOtherHit )->fTDC_TE)
+  if (fTDC_LE > other->fTDC_LE)
     return +1;
-  else
-    return 0;
+  if (fTDC_TE < other->fTDC_TE)
+    return -1;
+  if (fTDC_TE > other->fTDC_TE)
+    return +1;
+  return 0;
 }
 
 void SBSCDet_Hit::Clear( Option_t *opt ){ 
@@ -103,4 +105,3 @@ void SBSCDet_Hit::Show(FILE * fout1)
   //fprintf(fout1," %4d \n",fADC);
 }
 */
-

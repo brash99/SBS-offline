@@ -18,7 +18,7 @@ namespace Decoder {
 
   public:
 
-    VETROCcdetModule() : slot_data(nullptr) {}
+    VETROCcdetModule() : fTypeLast(15), slot_data(nullptr) {}
     VETROCcdetModule(Int_t crate, Int_t slot);
     virtual ~VETROCcdetModule() = default;
 
@@ -42,6 +42,7 @@ namespace Decoder {
     std::vector<UInt_t> fNumHits;
     std::vector<UInt_t> fTdcData;  // Raw data
     std::vector<UInt_t> fTdcOpt;  // Edge flag =0 Leading edge, = 1 Trailing edge
+    UInt_t fTypeLast;             // Type tag for continuation words
 
     THaSlotData *slot_data;  // Need to fix if multi-threading becomes available
    
