@@ -61,9 +61,9 @@ class SBSCDet_Hit : public TObject {
   void       SetX( Double_t x )         {fX = x;}
   void       SetY( Double_t y )         {fY = y;}
   void       SetZ( Double_t z )         {fZ = z;}
-  void       SetTDC_LE( Int_t le )       {fTDC_LE = le;}
-  void       SetTDC_TE( Int_t te )       {fTDC_TE = te;}
-  void       SetToT( Int_t tot )       {fToT = tot;}
+  void       SetTDC_LE( Double_t le )       {fTDC_LE = le;}
+  void       SetTDC_TE( Double_t te )       {fTDC_TE = te;}
+  void       SetToT( Double_t tot )         {fToT = tot;}
   //void       SetFlag( Int_t Flag )     {fFlag = Flag;}
   //void       SetVeto( Int_t Veto )     {fVeto = Veto;}
 
@@ -98,7 +98,6 @@ private:
 };
 
 #endif
-
 
 
 
