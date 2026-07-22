@@ -28,7 +28,7 @@ namespace Decoder {
 
   vfTDCModule::vfTDCModule(Int_t crate, Int_t slot)
     : VmeModule(crate, slot), fNumHits(NTDCCHAN), fTdcData(NTDCCHAN*MAXHIT),
-      fTdcOpt(NTDCCHAN*MAXHIT), slot_data(nullptr)
+      fTdcOpt(NTDCCHAN*MAXHIT), fTypeLast(15), slot_data(nullptr)
   {
     vfTDCModule::Init();
   }
@@ -81,9 +81,6 @@ namespace Decoder {
     if (data_type_def ==0 && data_type_cont==0) data_type_def = 3; // trigger time continuation 
     //std::cout << "data_type_cont = " << data_type_cont << " data_type_def = " << data_type_def << std::endl; 
     
-    static uint32_t type_last = 15;
-    static uint32_t time_last = 0;
-    static int new_type = 0;
     int type_current = 0;
     generic_data_word_t gword;
 
@@ -93,13 +90,12 @@ namespace Decoder {
 
    if(gword.bf.data_type_defining) /* data type defining word */
      {
-       new_type = 1;
        type_current = gword.bf.data_type_tag;
+       fTypeLast = type_current;
      }
    else
      {
-       new_type = 0;
-       type_current = type_last;
+       type_current = fTypeLast;
      }
 
     //std::cout << std::endl;
@@ -254,25 +250,29 @@ namespace Decoder {
   }
 
   UInt_t vfTDCModule::GetData( UInt_t chan, UInt_t hit ) const {
+    if( chan >= NTDCCHAN ) return 0;
     if( hit >= fNumHits[chan] ) return 0;
     UInt_t idx = chan * MAXHIT + hit;
-    if( idx > MAXHIT * NTDCCHAN ) return 0;
+    if( idx >= fTdcData.size() ) return 0;
     return fTdcData[idx];
   }
 
   UInt_t vfTDCModule::GetOpt( UInt_t chan, UInt_t hit ) const {
+    if( chan >= NTDCCHAN ) return 0;
     if( hit >= fNumHits[chan] ) return 0;
     UInt_t idx = chan * MAXHIT + hit;
-    if( idx > MAXHIT * NTDCCHAN ) return 0;
+    if( idx >= fTdcOpt.size() ) return 0;
     return fTdcOpt[idx];
   }
   
   void vfTDCModule::Clear( Option_t* ) {
     fNumHits.assign(NTDCCHAN, 0);
     fTdcData.assign(NTDCCHAN * MAXHIT, 0);
+    fTdcOpt.assign(NTDCCHAN * MAXHIT, 0);
+    fTypeLast = 15;
+    tdc_data.clear();
   }
 }
 
 ClassImp(Decoder::vfTDCModule)
-
 

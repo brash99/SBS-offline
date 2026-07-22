@@ -56,6 +56,7 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   
   Int_t err = SBSGenericDetector::ReadDatabase(date);
   if(err) {
+    fclose(fi);
     return err;
   }
   fIsInit = false;
@@ -69,6 +70,21 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
     { 0 } ///< Request must end in a NULL
   };
   err = LoadDB( fi, date, config_request, fPrefix );
+  if (err) {
+    fclose(fi);
+    return err;
+  }
+
+  const auto invalidGeometry = [this](const std::vector<Double_t>& values) {
+    return !values.empty() && static_cast<Int_t>(values.size()) != fNelem;
+  };
+  if (invalidGeometry(xpos) || invalidGeometry(ypos) || invalidGeometry(zpos)) {
+    Error(Here("ReadDatabase"),
+          "CDet geometry vector length does not match number of elements (%d)",
+          fNelem);
+    fclose(fi);
+    return kInitError;
+  }
 
   if (!xpos.empty()) {
     if ((int)xpos.size() == fNelem) {
@@ -76,8 +92,6 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
         fElements[ne]->SetX(xpos[ne]);
 	//std::cout << "ne = " << ne << " xpos = " << xpos[ne] << std::endl;
       }
-    } else {
-      std::cout << "  vector too small " << xpos.size() << " # of elements =" << fNelem << std::endl;
     }
   }
 
@@ -87,8 +101,6 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
         fElements[ne]->SetY(ypos[ne]);
 	//std::cout << "ne = " << ne << " ypos = " << ypos[ne] << std::endl;
       }
-    } else {
-      std::cout << " ypos vector too small " << ypos.size() << " # of elements =" << fNelem << std::endl;
     }
   }
   
@@ -98,8 +110,6 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
         fElements[ne]->SetZ(zpos[ne]);
 	//std::cout << "ne = " << ne << " zpos = " << zpos[ne] << std::endl;
       }
-    } else {
-      std::cout << " zpos vector too small " << zpos.size() << " # of elements =" << fNelem << std::endl;
     }
   }
 
@@ -174,18 +184,9 @@ void SBSCDet::Clear( Option_t* opt )
 /*
  * FindGoodHit()
  */
-Int_t SBSCDet::FindGoodHit(SBSElement *)
+Int_t SBSCDet::FindGoodHit(SBSElement *element)
 {
-  // Documentation for Hodoscope - not for CDet (yet)
-  // The variable passed defines is one CDet paddle PMT
-  // We can use it alone to find the good hits in that paddle or since
-  // we know the row and column of that paddle, we can find it's corresponding
-  // pair in fElementGrid[row][col][0]  (the last [0] is for the layer, we always
-  // use only one layer
-
-  // TODO: Implement logic here to determine good TDC Hit
-
-  return 0;
+  return SBSGenericDetector::FindGoodHit(element);
 }
 
 Int_t SBSCDet::CoarseProcess( TClonesArray& tracks )
@@ -280,6 +281,4 @@ Int_t SBSCDet::FineProcess( TClonesArray& tracks )
   fFineProcessed = 1;
   return 0;
 }
-
-
 
