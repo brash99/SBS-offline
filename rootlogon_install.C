@@ -32,9 +32,7 @@ void rootlogon(){
     }
   }
   
-  //gSystem->AddIncludePath(" -I${PROJECT_SOURCE_DIR}/include");
-  //gSystem->AddIncludePath(" -I${CMAKE_INSTALL_PREFIX}/include");
-  gSystem->AddIncludePath(" -I${CMAKE_INSTALL_FULL_INCLUDEDIR}");
+  gInterpreter->AddIncludePath("${CMAKE_INSTALL_FULL_INCLUDEDIR}");
 
   TString libname = "${CMAKE_INSTALL_FULL_LIBDIR}/libsbs.so";
 
@@ -52,4 +50,3 @@ void rootlogon(){
     gSystem->Load( libname.Data() ) ;
   }
 }
-
