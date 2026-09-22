@@ -9,12 +9,14 @@
 #include "TList.h"
 #include "SBSHCal.h"
 #include "SBSECal.h"
+#include "SBSCDet.h"
 #include "SBSGEMSpectrometerTracker.h"
 #include "SBSGEMPolarimeterTracker.h"
 #include "THaTrack.h"
 #include "SBSRasteredBeam.h"
 #include "THaTrackingDetector.h"
 #include "TClass.h"
+#include <limits>
 
 using namespace std;
 
@@ -164,6 +166,7 @@ Int_t SBSGEPEArm::CoarseReconstruct()
   // coordinate system:
 
   SBSECal *ECal = nullptr;
+  SBSCDet *CDet = nullptr;
   TIter next( fNonTrackingDetectors );
 
   //Grab a pointer to ECAL:
@@ -172,6 +175,24 @@ Int_t SBSGEPEArm::CoarseReconstruct()
 	 static_cast<THaNonTrackingDetector*>( next() )) {
     if(theNonTrackDetector->InheritsFrom("SBSECal")){
       ECal = static_cast<SBSECal*>(theNonTrackDetector);
+    } else if(theNonTrackDetector->InheritsFrom("SBSCDet")){
+      CDet = static_cast<SBSCDet*>(theNonTrackDetector);
+    }
+  }
+
+  // Apply the CDet timing calibration only after both detectors have completed
+  // CoarseProcess.  The calibration intentionally uses the energy-weighted
+  // mean ADC time of ECal's selected cluster, matching the calibration macros.
+  if( CDet != nullptr ){
+    if( ECal != nullptr && ECal->GetNclust() > 0 ){
+      CDet->ApplyECalTimingCalibration( ECal->GetAtimeMean(),
+                                        ECal->GetBestClusterIndex(),
+                                        ECal->GetX(), ECal->GetY(), fECALdist );
+    } else {
+      CDet->ApplyECalTimingCalibration(
+          std::numeric_limits<Double_t>::quiet_NaN(), -1,
+          std::numeric_limits<Double_t>::quiet_NaN(),
+          std::numeric_limits<Double_t>::quiet_NaN(), fECALdist );
     }
   }
 
@@ -251,4 +272,3 @@ Int_t SBSGEPEArm::CalcPID(){
 
 
 //_____________________________________________________________________________
-
