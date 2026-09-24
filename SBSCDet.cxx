@@ -40,7 +40,10 @@ SBSCDet::SBSCDet( const char* name, const char* description,
     fPairingEnabled(false), fPairingDeltaTimeCenter(0.0),
     fPairingDeltaTimeMax(0.0), fPairingDeltaXMax(0.0),
     fPairingDeltaYMax(0.0), fPairingTimeScale(1.0),
-    fPairingXScale(0.01), fPairingAllowMultiple(true)
+    fPairingXScale(0.01), fPairingAllowMultiple(true),
+    fPairingECalRankEnabled(false), fPairingECalTrajectoryCenter(0.0),
+    fPairingECalTimingCenter(0.0), fPairingECalTrajectoryScale(0.02),
+    fPairingECalTimingScale(5.0), fPairingECalRadius(2.0)
 {
   SetModeTDC(SBSModeTDC::kTDC); //  A TDC with leading & trailing edge info
   SetModeADC(SBSModeADC::kNone); // Default is No ADC, but can be re-enabled later
@@ -91,6 +94,7 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   Int_t selectionEnabled = 0;
   Int_t pairingEnabled = 0;
   Int_t pairingAllowMultiple = 1;
+  Int_t pairingECalRankEnabled = 0;
   std::vector<Double_t> timingPixelOffset;
 
   DBRequest config_request[] = {
@@ -135,6 +139,12 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
     { "pairing.time_scale", &fPairingTimeScale, kDouble, 0, 1 },
     { "pairing.x_scale", &fPairingXScale, kDouble, 0, 1 },
     { "pairing.allow_multiple", &pairingAllowMultiple, kInt, 0, 1 },
+    { "pairing.ecal_rank_enable", &pairingECalRankEnabled, kInt, 0, 1 },
+    { "pairing.ecal_trajectory_center", &fPairingECalTrajectoryCenter, kDouble, 0, 1 },
+    { "pairing.ecal_timing_center", &fPairingECalTimingCenter, kDouble, 0, 1 },
+    { "pairing.ecal_trajectory_scale", &fPairingECalTrajectoryScale, kDouble, 0, 1 },
+    { "pairing.ecal_timing_scale", &fPairingECalTimingScale, kDouble, 0, 1 },
+    { "pairing.ecal_radius", &fPairingECalRadius, kDouble, 0, 1 },
     { 0 } ///< Request must end in a NULL
   };
   err = LoadDB( fi, date, config_request, fPrefix );
@@ -213,11 +223,20 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
 
   fPairingEnabled = pairingEnabled != 0;
   fPairingAllowMultiple = pairingAllowMultiple != 0;
+  fPairingECalRankEnabled = pairingECalRankEnabled != 0;
   if (fPairingEnabled &&
       (fPairingDeltaTimeMax <= 0.0 || fPairingDeltaXMax <= 0.0 ||
        fPairingDeltaYMax <= 0.0 || fPairingTimeScale <= 0.0 ||
        fPairingXScale <= 0.0)) {
     Error(Here("ReadDatabase"), "Invalid CDet pairing database parameters");
+    fclose(fi);
+    return kInitError;
+  }
+  if (fPairingECalRankEnabled &&
+      (fPairingECalTrajectoryScale <= 0.0 ||
+       fPairingECalTimingScale <= 0.0 || fPairingECalRadius <= 0.0)) {
+    Error(Here("ReadDatabase"),
+          "Invalid CDet ECal-informed pairing parameters");
     fclose(fi);
     return kInitError;
   }
@@ -303,6 +322,8 @@ Int_t SBSCDet::DefineVariables( EMode mode )
    { "pair.dy", " Layer-2 minus Layer-1 y in m", "fPairDeltaY" },
    { "pair.score", " CDet-only layer-pair ranking score", "fPairScore" },
    { "pair.ecal_residual", " ECal time minus corrected pair mean time in ns", "fPairECalResidual" },
+   { "pair.trajectory_residual", " Inter-layer x residual relative to the ECal trajectory in m", "fPairTrajectoryResidual" },
+   { "pair.ecal_score", " ECal-informed normalized trajectory-time score", "fPairECalScore" },
    { "timing.status", " CDet timing status: 0 disabled, 1 missing ECal, 2 applied, -1 invalid calibration", "fTimingStatus" },
    { "timing.ecal_cluster", " ECal cluster index used by CDet timing", "fTimingECalClusterIndex" },
    { "timing.ecal_time", " ECal cluster energy-weighted ADC time used by CDet timing", "fTimingECalTime" },
@@ -388,6 +409,8 @@ void SBSCDet::ClearPulseCandidates()
   fPairDeltaY.clear();
   fPairScore.clear();
   fPairECalResidual.clear();
+  fPairTrajectoryResidual.clear();
+  fPairECalScore.clear();
   fTimingStatus = fTimingCalibrationEnabled ? 1 : 0;
   fTimingECalClusterIndex = -1;
   fTimingECalTime = std::numeric_limits<Double_t>::quiet_NaN();
@@ -610,7 +633,10 @@ void SBSCDet::BuildLayerPairs()
     Double_t dt;
     Double_t dx;
     Double_t dy;
-    Double_t score;
+    Double_t cdetScore;
+    Double_t ecalResidual;
+    Double_t trajectoryResidual;
+    Double_t ecalScore;
   };
   std::vector<Candidate> candidates;
   candidates.reserve(layer1.size() * layer2.size());
@@ -628,16 +654,40 @@ void SBSCDet::BuildLayerPairs()
       const Double_t timePull =
           (dt - fPairingDeltaTimeCenter) / fPairingTimeScale;
       const Double_t xPull = dx / fPairingXScale;
-      candidates.push_back({pulse1, pulse2, dt, dx, dy,
-                            timePull*timePull + xPull*xPull});
+      const Double_t cdetScore = timePull*timePull + xPull*xPull;
+
+      // Compare the inter-layer displacement with the displacement expected
+      // from the ECal-to-target ray. Since projected_x = x_ECal*z/z_ECal,
+      // this difference is equivalent to comparing the two trajectory slopes
+      // without dividing by the small layer separation.
+      const Double_t projectedDeltaX = fPulseProjectedECalX[pulse2] -
+          fPulseProjectedECalX[pulse1];
+      const Double_t trajectoryResidual = dx - projectedDeltaX;
+      const Double_t ecalResidual = 0.5 *
+          (fPulseECalResidual[pulse1] + fPulseECalResidual[pulse2]);
+      const Double_t trajectoryPull =
+          (trajectoryResidual - fPairingECalTrajectoryCenter) /
+          fPairingECalTrajectoryScale;
+      const Double_t timingPull =
+          (ecalResidual - fPairingECalTimingCenter) /
+          fPairingECalTimingScale;
+      const Double_t ecalScore =
+          trajectoryPull*trajectoryPull + timingPull*timingPull;
+      if (fPairingECalRankEnabled &&
+          ecalScore > fPairingECalRadius*fPairingECalRadius)
+        continue;
+      candidates.push_back({pulse1, pulse2, dt, dx, dy, cdetScore,
+                            ecalResidual, trajectoryResidual, ecalScore});
     }
   }
 
   // Preserve candidate-generation order for the vanishingly rare exact-score
   // tie. This makes the greedy matching deterministic and auditable.
   std::stable_sort(candidates.begin(), candidates.end(),
-      [](const Candidate& left, const Candidate& right) {
-        return left.score < right.score;
+      [this](const Candidate& left, const Candidate& right) {
+        if (fPairingECalRankEnabled && left.ecalScore != right.ecalScore)
+          return left.ecalScore < right.ecalScore;
+        return left.cdetScore < right.cdetScore;
       });
 
   std::vector<Bool_t> used(fPulsePMT.size(), false);
@@ -660,8 +710,10 @@ void SBSCDet::BuildLayerPairs()
     fPairDeltaTime.push_back(candidate.dt);
     fPairDeltaX.push_back(candidate.dx);
     fPairDeltaY.push_back(candidate.dy);
-    fPairScore.push_back(candidate.score);
-    fPairECalResidual.push_back(fTimingECalTime - meanTime);
+    fPairScore.push_back(candidate.cdetScore);
+    fPairECalResidual.push_back(candidate.ecalResidual);
+    fPairTrajectoryResidual.push_back(candidate.trajectoryResidual);
+    fPairECalScore.push_back(candidate.ecalScore);
     if (!fPairingAllowMultiple)
       break;
   }

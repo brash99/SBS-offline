@@ -122,6 +122,8 @@ protected:
   std::vector<Double_t> fPairDeltaY;
   std::vector<Double_t> fPairScore;
   std::vector<Double_t> fPairECalResidual;
+  std::vector<Double_t> fPairTrajectoryResidual;
+  std::vector<Double_t> fPairECalScore;
 
   Bool_t fTimingCalibrationEnabled;
   Bool_t fTimingCalibrationLoaded;
@@ -165,6 +167,12 @@ protected:
   Double_t fPairingTimeScale;
   Double_t fPairingXScale;
   Bool_t fPairingAllowMultiple;
+  Bool_t fPairingECalRankEnabled;
+  Double_t fPairingECalTrajectoryCenter;
+  Double_t fPairingECalTimingCenter;
+  Double_t fPairingECalTrajectoryScale;
+  Double_t fPairingECalTimingScale;
+  Double_t fPairingECalRadius;
 
   void BuildPulseCandidates();
   void BuildLayerPairs();
@@ -173,7 +181,7 @@ protected:
   Int_t GetTimingECalClusterIndex() const { return fTimingECalClusterIndex; }
   Double_t GetTimingECalTime() const { return fTimingECalTime; }
 
-  ClassDef(SBSCDet,9)  // Describes scintillator plane with F1TDC as a detector
+  ClassDef(SBSCDet,10)  // Describes scintillator plane with F1TDC as a detector
 };
 
 #endif
