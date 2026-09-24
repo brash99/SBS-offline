@@ -43,7 +43,12 @@ SBSCDet::SBSCDet( const char* name, const char* description,
     fPairingXScale(0.01), fPairingAllowMultiple(true),
     fPairingECalRankEnabled(false), fPairingECalTrajectoryCenter(0.0),
     fPairingECalTimingCenter(0.0), fPairingECalTrajectoryScale(0.02),
-    fPairingECalTimingScale(5.0), fPairingECalRadius(2.0)
+    fPairingECalTimingScale(5.0), fPairingECalRadius(2.0),
+    fPairingOppositeSideEnabled(false),
+    fPairingOppositeDeltaYCenter(0.51),
+    fPairingOppositeDeltaYTolerance(0.08),
+    fPairingOppositeProjectedYCenter(0.0),
+    fPairingOppositeProjectedYMax(0.17)
 {
   SetModeTDC(SBSModeTDC::kTDC); //  A TDC with leading & trailing edge info
   SetModeADC(SBSModeADC::kNone); // Default is No ADC, but can be re-enabled later
@@ -95,6 +100,7 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   Int_t pairingEnabled = 0;
   Int_t pairingAllowMultiple = 1;
   Int_t pairingECalRankEnabled = 0;
+  Int_t pairingOppositeSideEnabled = 0;
   std::vector<Double_t> timingPixelOffset;
 
   DBRequest config_request[] = {
@@ -145,6 +151,11 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
     { "pairing.ecal_trajectory_scale", &fPairingECalTrajectoryScale, kDouble, 0, 1 },
     { "pairing.ecal_timing_scale", &fPairingECalTimingScale, kDouble, 0, 1 },
     { "pairing.ecal_radius", &fPairingECalRadius, kDouble, 0, 1 },
+    { "pairing.opposite_side_enable", &pairingOppositeSideEnabled, kInt, 0, 1 },
+    { "pairing.opposite_dy_center", &fPairingOppositeDeltaYCenter, kDouble, 0, 1 },
+    { "pairing.opposite_dy_tolerance", &fPairingOppositeDeltaYTolerance, kDouble, 0, 1 },
+    { "pairing.opposite_projected_y_center", &fPairingOppositeProjectedYCenter, kDouble, 0, 1 },
+    { "pairing.opposite_projected_y_max", &fPairingOppositeProjectedYMax, kDouble, 0, 1 },
     { 0 } ///< Request must end in a NULL
   };
   err = LoadDB( fi, date, config_request, fPrefix );
@@ -224,6 +235,7 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   fPairingEnabled = pairingEnabled != 0;
   fPairingAllowMultiple = pairingAllowMultiple != 0;
   fPairingECalRankEnabled = pairingECalRankEnabled != 0;
+  fPairingOppositeSideEnabled = pairingOppositeSideEnabled != 0;
   if (fPairingEnabled &&
       (fPairingDeltaTimeMax <= 0.0 || fPairingDeltaXMax <= 0.0 ||
        fPairingDeltaYMax <= 0.0 || fPairingTimeScale <= 0.0 ||
@@ -237,6 +249,15 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
        fPairingECalTimingScale <= 0.0 || fPairingECalRadius <= 0.0)) {
     Error(Here("ReadDatabase"),
           "Invalid CDet ECal-informed pairing parameters");
+    fclose(fi);
+    return kInitError;
+  }
+  if (fPairingOppositeSideEnabled &&
+      (fPairingOppositeDeltaYCenter <= 0.0 ||
+       fPairingOppositeDeltaYTolerance <= 0.0 ||
+       fPairingOppositeProjectedYMax <= 0.0)) {
+    Error(Here("ReadDatabase"),
+          "Invalid CDet opposite-side pairing parameters");
     fclose(fi);
     return kInitError;
   }
@@ -324,6 +345,7 @@ Int_t SBSCDet::DefineVariables( EMode mode )
    { "pair.ecal_residual", " ECal time minus corrected pair mean time in ns", "fPairECalResidual" },
    { "pair.trajectory_residual", " Inter-layer x residual relative to the ECal trajectory in m", "fPairTrajectoryResidual" },
    { "pair.ecal_score", " ECal-informed normalized trajectory-time score", "fPairECalScore" },
+   { "pair.y_topology", " Pair y topology: 0 same-side, 1 opposite-side seam", "fPairYTopology" },
    { "timing.status", " CDet timing status: 0 disabled, 1 missing ECal, 2 applied, -1 invalid calibration", "fTimingStatus" },
    { "timing.ecal_cluster", " ECal cluster index used by CDet timing", "fTimingECalClusterIndex" },
    { "timing.ecal_time", " ECal cluster energy-weighted ADC time used by CDet timing", "fTimingECalTime" },
@@ -411,6 +433,7 @@ void SBSCDet::ClearPulseCandidates()
   fPairECalResidual.clear();
   fPairTrajectoryResidual.clear();
   fPairECalScore.clear();
+  fPairYTopology.clear();
   fTimingStatus = fTimingCalibrationEnabled ? 1 : 0;
   fTimingECalClusterIndex = -1;
   fTimingECalTime = std::numeric_limits<Double_t>::quiet_NaN();
@@ -637,6 +660,7 @@ void SBSCDet::BuildLayerPairs()
     Double_t ecalResidual;
     Double_t trajectoryResidual;
     Double_t ecalScore;
+    Int_t yTopology;
   };
   std::vector<Candidate> candidates;
   candidates.reserve(layer1.size() * layer2.size());
@@ -647,9 +671,17 @@ void SBSCDet::BuildLayerPairs()
       const Double_t dx = fPulseCorrectedX[pulse2] -
           fPulseCorrectedX[pulse1];
       const Double_t dy = fPulseY[pulse2] - fPulseY[pulse1];
+      const Bool_t sameSide = std::fabs(dy) <= fPairingDeltaYMax;
+      const Double_t alignedProjectedY = 0.5 *
+          (fPulseProjectedECalY[pulse1] + fPulseProjectedECalY[pulse2]) +
+          fSelectionYResidualOffset;
+      const Bool_t oppositeSide = fPairingOppositeSideEnabled &&
+          std::fabs(std::fabs(dy) - fPairingOppositeDeltaYCenter) <=
+              fPairingOppositeDeltaYTolerance &&
+          std::fabs(alignedProjectedY - fPairingOppositeProjectedYCenter) <=
+              fPairingOppositeProjectedYMax;
       if (std::fabs(dt - fPairingDeltaTimeCenter) > fPairingDeltaTimeMax ||
-          std::fabs(dx) > fPairingDeltaXMax ||
-          std::fabs(dy) > fPairingDeltaYMax)
+          std::fabs(dx) > fPairingDeltaXMax || (!sameSide && !oppositeSide))
         continue;
       const Double_t timePull =
           (dt - fPairingDeltaTimeCenter) / fPairingTimeScale;
@@ -677,7 +709,8 @@ void SBSCDet::BuildLayerPairs()
           ecalScore > fPairingECalRadius*fPairingECalRadius)
         continue;
       candidates.push_back({pulse1, pulse2, dt, dx, dy, cdetScore,
-                            ecalResidual, trajectoryResidual, ecalScore});
+                            ecalResidual, trajectoryResidual, ecalScore,
+                            oppositeSide && !sameSide ? 1 : 0});
     }
   }
 
@@ -714,6 +747,7 @@ void SBSCDet::BuildLayerPairs()
     fPairECalResidual.push_back(candidate.ecalResidual);
     fPairTrajectoryResidual.push_back(candidate.trajectoryResidual);
     fPairECalScore.push_back(candidate.ecalScore);
+    fPairYTopology.push_back(candidate.yTopology);
     if (!fPairingAllowMultiple)
       break;
   }
