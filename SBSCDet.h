@@ -23,6 +23,76 @@ class THaBenhmark;
 class SBSCDet : public SBSGenericDetector {
 
 public:
+  /// Read-only snapshot of one complete decoded CDet pulse candidate.
+  /// Indices refer to the event-local pulse arrays and remain valid only for
+  /// the event in which the snapshot was requested.
+  struct PulseCandidate {
+    Int_t pmt;
+    Int_t index;
+    Int_t leIndex;
+    Int_t teIndex;
+    Int_t row;
+    Int_t col;
+    Int_t layer;
+    Double_t x;
+    Double_t y;
+    Double_t z;
+    Double_t leadingEdge;
+    Double_t trailingEdge;
+    Double_t timeOverThreshold;
+    Double_t rawLeadingEdge;
+    Double_t rawTrailingEdge;
+    Double_t rawTimeOverThreshold;
+    Double_t correctedLeadingEdge;
+    Double_t correctedTrailingEdge;
+    Double_t timeOverThresholdNs;
+    Double_t ecalResidual;
+    Bool_t calibrationValid;
+    Double_t correctedX;
+    Double_t projectedECalX;
+    Double_t projectedECalY;
+    Double_t ecalXResidual;
+    Double_t ecalYResidual;
+    Bool_t broadQualityPass;
+    Bool_t ecalEligibilityPass;
+    Bool_t spatialPass;
+  };
+
+  /// Read-only snapshot of one accepted, one-to-one Layer-1/Layer-2 pair.
+  struct LayerPair {
+    Int_t index;
+    Int_t pulseIndexL1;
+    Int_t pulseIndexL2;
+    Int_t pmtL1;
+    Int_t pmtL2;
+    Double_t timeL1;
+    Double_t timeL2;
+    Double_t meanTime;
+    Double_t deltaTime;
+    Double_t deltaX;
+    Double_t deltaY;
+    Double_t score;
+    Double_t ecalResidual;
+    Double_t trajectoryResidual;
+    Double_t ecalScore;
+    Int_t yTopology;
+    Bool_t greedySelected;
+    Int_t selectedPairIndex;
+  };
+
+  /// Read-only snapshot of one accepted candidate in an event containing
+  /// fully selected pulses in exactly one CDet layer.
+  struct SingleLayerCandidate {
+    Int_t index;
+    Int_t pulseIndex;
+    Int_t pmt;
+    Int_t layer;
+    Double_t correctedLeadingEdge;
+    Double_t ecalResidual;
+    Double_t xResidual;
+    Double_t score;
+  };
+
   SBSCDet( const char* name, const char* description, 
       THaApparatus* apparatus=0);
 
@@ -53,6 +123,37 @@ public:
     { return fNInvalidPairSlots; }
   Int_t                 GetNumLayerPairs() const
     { return static_cast<Int_t>(fPairIndex.size()); }
+  Int_t                 GetNumLayerPairCandidates() const
+    { return static_cast<Int_t>(fPairCandidateIndex.size()); }
+  Int_t                 GetNumSingleLayerCandidates() const
+    { return static_cast<Int_t>(fSingleLayerCandidateIndex.size()); }
+  Int_t                 GetROICandidateStatus() const
+    { return fROICandidateStatus; }
+
+  /// Copy one event-local pulse candidate into pulse. Returns false for an
+  /// invalid index. This is the supported in-process interface for consumers
+  /// such as the global ROI module; callers do not own detector storage.
+  Bool_t                GetPulseCandidate(Int_t index,
+                                          PulseCandidate& pulse) const;
+
+  /// Copy one event-local accepted pair into pair. Returns false for an
+  /// invalid index. These are the existing greedy-selected pairs; all valid
+  /// pre-greedy hypotheses are available through GetLayerPairCandidate().
+  Bool_t                GetLayerPair(Int_t index, LayerPair& pair) const;
+
+  /// Copy one event-local pair hypothesis that passed all detector-local hard
+  /// gates and the configured ECal ellipse, before greedy pulse sharing is
+  /// resolved. Returns false for an invalid index. A pulse may therefore occur
+  /// in more than one candidate.
+  Bool_t                GetLayerPairCandidate(Int_t index,
+                                              LayerPair& pair) const;
+
+  /// Copy one accepted exclusive single-layer candidate into candidate.
+  /// Returns false for an invalid index. Every candidate in an event belongs
+  /// to the same populated layer; events with good pulses in both layers are
+  /// excluded from this collection.
+  Bool_t                GetSingleLayerCandidate(
+      Int_t index, SingleLayerCandidate& candidate) const;
 
   /// Retain every complete decoded CDet TDC pulse (LE, TE, positive ToT) with
   /// stable channel/pulse identity.
@@ -126,6 +227,34 @@ protected:
   std::vector<Double_t> fPairECalScore;
   std::vector<Int_t> fPairYTopology;
 
+  std::vector<Int_t>    fPairCandidateIndex;
+  std::vector<Int_t>    fPairCandidatePulseIndexL1;
+  std::vector<Int_t>    fPairCandidatePulseIndexL2;
+  std::vector<Int_t>    fPairCandidatePMTL1;
+  std::vector<Int_t>    fPairCandidatePMTL2;
+  std::vector<Double_t> fPairCandidateTimeL1;
+  std::vector<Double_t> fPairCandidateTimeL2;
+  std::vector<Double_t> fPairCandidateTimeMean;
+  std::vector<Double_t> fPairCandidateDeltaTime;
+  std::vector<Double_t> fPairCandidateDeltaX;
+  std::vector<Double_t> fPairCandidateDeltaY;
+  std::vector<Double_t> fPairCandidateScore;
+  std::vector<Double_t> fPairCandidateECalResidual;
+  std::vector<Double_t> fPairCandidateTrajectoryResidual;
+  std::vector<Double_t> fPairCandidateECalScore;
+  std::vector<Int_t>    fPairCandidateYTopology;
+  std::vector<Int_t>    fPairCandidateGreedySelected;
+  std::vector<Int_t>    fPairCandidateSelectedPairIndex;
+
+  std::vector<Int_t>    fSingleLayerCandidateIndex;
+  std::vector<Int_t>    fSingleLayerCandidatePulseIndex;
+  std::vector<Int_t>    fSingleLayerCandidatePMT;
+  std::vector<Int_t>    fSingleLayerCandidateLayer;
+  std::vector<Double_t> fSingleLayerCandidateTime;
+  std::vector<Double_t> fSingleLayerCandidateECalResidual;
+  std::vector<Double_t> fSingleLayerCandidateXResidual;
+  std::vector<Double_t> fSingleLayerCandidateScore;
+
   Bool_t fTimingCalibrationEnabled;
   Bool_t fTimingCalibrationLoaded;
   Int_t fTimingStatus;
@@ -179,6 +308,13 @@ protected:
   Double_t fPairingOppositeDeltaYTolerance;
   Double_t fPairingOppositeProjectedYCenter;
   Double_t fPairingOppositeProjectedYMax;
+  Bool_t fSingleLayerEnabled;
+  Double_t fSingleLayerResidualCenter;
+  Double_t fSingleLayerTimingCenter;
+  Double_t fSingleLayerResidualScale;
+  Double_t fSingleLayerTimingScale;
+  Double_t fSingleLayerRadius;
+  Int_t fROICandidateStatus;
 
   void BuildPulseCandidates();
   void BuildLayerPairs();
@@ -187,7 +323,7 @@ protected:
   Int_t GetTimingECalClusterIndex() const { return fTimingECalClusterIndex; }
   Double_t GetTimingECalTime() const { return fTimingECalTime; }
 
-  ClassDef(SBSCDet,11)  // Describes scintillator plane with F1TDC as a detector
+  ClassDef(SBSCDet,14)  // Describes scintillator plane with F1TDC as a detector
 };
 
 #endif

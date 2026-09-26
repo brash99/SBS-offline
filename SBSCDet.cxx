@@ -48,7 +48,11 @@ SBSCDet::SBSCDet( const char* name, const char* description,
     fPairingOppositeDeltaYCenter(0.51),
     fPairingOppositeDeltaYTolerance(0.08),
     fPairingOppositeProjectedYCenter(0.0),
-    fPairingOppositeProjectedYMax(0.17)
+    fPairingOppositeProjectedYMax(0.17),
+    fSingleLayerEnabled(false), fSingleLayerResidualCenter(0.0),
+    fSingleLayerTimingCenter(-26.0), fSingleLayerResidualScale(0.040),
+    fSingleLayerTimingScale(5.0), fSingleLayerRadius(2.0),
+    fROICandidateStatus(0)
 {
   SetModeTDC(SBSModeTDC::kTDC); //  A TDC with leading & trailing edge info
   SetModeADC(SBSModeADC::kNone); // Default is No ADC, but can be re-enabled later
@@ -101,6 +105,7 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   Int_t pairingAllowMultiple = 1;
   Int_t pairingECalRankEnabled = 0;
   Int_t pairingOppositeSideEnabled = 0;
+  Int_t singleLayerEnabled = -1;
   std::vector<Double_t> timingPixelOffset;
 
   DBRequest config_request[] = {
@@ -156,6 +161,12 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
     { "pairing.opposite_dy_tolerance", &fPairingOppositeDeltaYTolerance, kDouble, 0, 1 },
     { "pairing.opposite_projected_y_center", &fPairingOppositeProjectedYCenter, kDouble, 0, 1 },
     { "pairing.opposite_projected_y_max", &fPairingOppositeProjectedYMax, kDouble, 0, 1 },
+    { "single_layer.enable", &singleLayerEnabled, kInt, 0, 1 },
+    { "single_layer.residual_center", &fSingleLayerResidualCenter, kDouble, 0, 1 },
+    { "single_layer.timing_center", &fSingleLayerTimingCenter, kDouble, 0, 1 },
+    { "single_layer.residual_scale", &fSingleLayerResidualScale, kDouble, 0, 1 },
+    { "single_layer.timing_scale", &fSingleLayerTimingScale, kDouble, 0, 1 },
+    { "single_layer.radius", &fSingleLayerRadius, kDouble, 0, 1 },
     { 0 } ///< Request must end in a NULL
   };
   err = LoadDB( fi, date, config_request, fPrefix );
@@ -236,6 +247,8 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
   fPairingAllowMultiple = pairingAllowMultiple != 0;
   fPairingECalRankEnabled = pairingECalRankEnabled != 0;
   fPairingOppositeSideEnabled = pairingOppositeSideEnabled != 0;
+  fSingleLayerEnabled = singleLayerEnabled < 0 ? fPairingECalRankEnabled
+                                               : singleLayerEnabled != 0;
   if (fPairingEnabled &&
       (fPairingDeltaTimeMax <= 0.0 || fPairingDeltaXMax <= 0.0 ||
        fPairingDeltaYMax <= 0.0 || fPairingTimeScale <= 0.0 ||
@@ -258,6 +271,14 @@ Int_t SBSCDet::ReadDatabase( const TDatime& date )
        fPairingOppositeProjectedYMax <= 0.0)) {
     Error(Here("ReadDatabase"),
           "Invalid CDet opposite-side pairing parameters");
+    fclose(fi);
+    return kInitError;
+  }
+  if (fSingleLayerEnabled &&
+      (fSingleLayerResidualScale <= 0.0 ||
+       fSingleLayerTimingScale <= 0.0 || fSingleLayerRadius <= 0.0)) {
+    Error(Here("ReadDatabase"),
+          "Invalid CDet exclusive single-layer selection parameters");
     fclose(fi);
     return kInitError;
   }
@@ -306,7 +327,7 @@ Int_t SBSCDet::DefineVariables( EMode mode )
    { "pulse.te_index", " Original decoder-slot index of the accepted TE", "fPulseTEIndex" },
    { "pulse.row",     " Pulse candidate row", "fPulseRow" },
    { "pulse.col",     " Pulse candidate column", "fPulseCol" },
-   { "pulse.layer",   " Pulse candidate layer", "fPulseLayer" },
+   { "pulse.layer",   " Pulse candidate physical layer (0=Layer 1, 1=Layer 2)", "fPulseLayer" },
    { "pulse.x",       " Pulse candidate channel X position", "fPulseX" },
    { "pulse.y",       " Pulse candidate channel Y position", "fPulseY" },
    { "pulse.z",       " Pulse candidate channel Z position", "fPulseZ" },
@@ -346,6 +367,35 @@ Int_t SBSCDet::DefineVariables( EMode mode )
    { "pair.trajectory_residual", " Inter-layer x residual relative to the ECal trajectory in m", "fPairTrajectoryResidual" },
    { "pair.ecal_score", " ECal-informed normalized trajectory-time score", "fPairECalScore" },
    { "pair.y_topology", " Pair y topology: 0 same-side, 1 opposite-side seam", "fPairYTopology" },
+   { "pair_candidate.n", " Number of valid CDet layer-pair hypotheses before greedy assignment", "GetNumLayerPairCandidates()" },
+   { "pair_candidate.index", " Pair-candidate rank within the event", "fPairCandidateIndex" },
+   { "pair_candidate.pulse_index_l1", " Index in pulse arrays for Layer-1 member", "fPairCandidatePulseIndexL1" },
+   { "pair_candidate.pulse_index_l2", " Index in pulse arrays for Layer-2 member", "fPairCandidatePulseIndexL2" },
+   { "pair_candidate.pmtnum_l1", " Layer-1 member pixel ID", "fPairCandidatePMTL1" },
+   { "pair_candidate.pmtnum_l2", " Layer-2 member pixel ID", "fPairCandidatePMTL2" },
+   { "pair_candidate.time_l1", " Corrected Layer-1 leading-edge time in ns", "fPairCandidateTimeL1" },
+   { "pair_candidate.time_l2", " Corrected Layer-2 leading-edge time in ns", "fPairCandidateTimeL2" },
+   { "pair_candidate.time_mean", " Mean corrected candidate time in ns", "fPairCandidateTimeMean" },
+   { "pair_candidate.dt", " Layer-2 minus Layer-1 corrected time in ns", "fPairCandidateDeltaTime" },
+   { "pair_candidate.dx", " Layer-2 minus Layer-1 aligned x in m", "fPairCandidateDeltaX" },
+   { "pair_candidate.dy", " Layer-2 minus Layer-1 y in m", "fPairCandidateDeltaY" },
+   { "pair_candidate.score", " CDet-only layer-pair ranking score", "fPairCandidateScore" },
+   { "pair_candidate.ecal_residual", " ECal time minus corrected candidate mean time in ns", "fPairCandidateECalResidual" },
+   { "pair_candidate.trajectory_residual", " Inter-layer x residual relative to the ECal trajectory in m", "fPairCandidateTrajectoryResidual" },
+   { "pair_candidate.ecal_score", " ECal-informed normalized trajectory-time score", "fPairCandidateECalScore" },
+   { "pair_candidate.y_topology", " Candidate y topology: 0 same-side, 1 opposite-side seam", "fPairCandidateYTopology" },
+   { "pair_candidate.greedy_selected", " One if this hypothesis is retained in pair.*", "fPairCandidateGreedySelected" },
+   { "pair_candidate.selected_pair_index", " Corresponding pair.* index, or -1 if not selected", "fPairCandidateSelectedPairIndex" },
+   { "single_candidate.n", " Number of accepted exclusive single-layer candidates", "GetNumSingleLayerCandidates()" },
+   { "single_candidate.index", " Single-layer candidate index within the event", "fSingleLayerCandidateIndex" },
+   { "single_candidate.pulse_index", " Index in pulse arrays for the source pulse", "fSingleLayerCandidatePulseIndex" },
+   { "single_candidate.pmtnum", " Single-layer candidate pixel ID", "fSingleLayerCandidatePMT" },
+   { "single_candidate.layer", " Single-layer candidate physical layer (0=Layer 1, 1=Layer 2)", "fSingleLayerCandidateLayer" },
+   { "single_candidate.time", " Corrected leading-edge time in ns", "fSingleLayerCandidateTime" },
+   { "single_candidate.ecal_residual", " ECal time minus corrected leading-edge time in ns", "fSingleLayerCandidateECalResidual" },
+   { "single_candidate.x_residual", " Aligned CDet x minus projected ECal x in m", "fSingleLayerCandidateXResidual" },
+   { "single_candidate.score", " Normalized single-layer x-time ellipse score", "fSingleLayerCandidateScore" },
+   { "roi.status", " ROI candidate status: 0 none, 1 pair hypotheses, 2 Layer-1-only, 3 Layer-2-only", "GetROICandidateStatus()" },
    { "timing.status", " CDet timing status: 0 disabled, 1 missing ECal, 2 applied, -1 invalid calibration", "fTimingStatus" },
    { "timing.ecal_cluster", " ECal cluster index used by CDet timing", "fTimingECalClusterIndex" },
    { "timing.ecal_time", " ECal cluster energy-weighted ADC time used by CDet timing", "fTimingECalTime" },
@@ -356,6 +406,123 @@ Int_t SBSCDet::DefineVariables( EMode mode )
  
   // Finally go back
   return err;
+}
+
+//_____________________________________________________________________________
+Bool_t SBSCDet::GetPulseCandidate(Int_t index,
+                                  PulseCandidate& pulse) const
+{
+  if (index < 0 || static_cast<size_t>(index) >= fPulsePMT.size())
+    return false;
+
+  const size_t i = static_cast<size_t>(index);
+  pulse.pmt = fPulsePMT[i];
+  pulse.index = fPulseIndex[i];
+  pulse.leIndex = fPulseLEIndex[i];
+  pulse.teIndex = fPulseTEIndex[i];
+  pulse.row = fPulseRow[i];
+  pulse.col = fPulseCol[i];
+  pulse.layer = fPulseLayer[i];
+  pulse.x = fPulseX[i];
+  pulse.y = fPulseY[i];
+  pulse.z = fPulseZ[i];
+  pulse.leadingEdge = fPulseLE[i];
+  pulse.trailingEdge = fPulseTE[i];
+  pulse.timeOverThreshold = fPulseToT[i];
+  pulse.rawLeadingEdge = fPulseLERaw[i];
+  pulse.rawTrailingEdge = fPulseTERaw[i];
+  pulse.rawTimeOverThreshold = fPulseToTRaw[i];
+  pulse.correctedLeadingEdge = fPulseLECorrected[i];
+  pulse.correctedTrailingEdge = fPulseTECorrected[i];
+  pulse.timeOverThresholdNs = fPulseToTNs[i];
+  pulse.ecalResidual = fPulseECalResidual[i];
+  pulse.calibrationValid = fPulseCalibrationValid[i] != 0;
+  pulse.correctedX = fPulseCorrectedX[i];
+  pulse.projectedECalX = fPulseProjectedECalX[i];
+  pulse.projectedECalY = fPulseProjectedECalY[i];
+  pulse.ecalXResidual = fPulseECalXResidual[i];
+  pulse.ecalYResidual = fPulseECalYResidual[i];
+  pulse.broadQualityPass = fPulseBroadQualityPass[i] != 0;
+  pulse.ecalEligibilityPass = fPulseECalEligibilityPass[i] != 0;
+  pulse.spatialPass = fPulseSpatialPass[i] != 0;
+  return true;
+}
+
+//_____________________________________________________________________________
+Bool_t SBSCDet::GetLayerPair(Int_t index, LayerPair& pair) const
+{
+  if (index < 0 || static_cast<size_t>(index) >= fPairIndex.size())
+    return false;
+
+  const size_t i = static_cast<size_t>(index);
+  pair.index = fPairIndex[i];
+  pair.pulseIndexL1 = fPairPulseIndexL1[i];
+  pair.pulseIndexL2 = fPairPulseIndexL2[i];
+  pair.pmtL1 = fPairPMTL1[i];
+  pair.pmtL2 = fPairPMTL2[i];
+  pair.timeL1 = fPairTimeL1[i];
+  pair.timeL2 = fPairTimeL2[i];
+  pair.meanTime = fPairTimeMean[i];
+  pair.deltaTime = fPairDeltaTime[i];
+  pair.deltaX = fPairDeltaX[i];
+  pair.deltaY = fPairDeltaY[i];
+  pair.score = fPairScore[i];
+  pair.ecalResidual = fPairECalResidual[i];
+  pair.trajectoryResidual = fPairTrajectoryResidual[i];
+  pair.ecalScore = fPairECalScore[i];
+  pair.yTopology = fPairYTopology[i];
+  pair.greedySelected = true;
+  pair.selectedPairIndex = fPairIndex[i];
+  return true;
+}
+
+//_____________________________________________________________________________
+Bool_t SBSCDet::GetLayerPairCandidate(Int_t index, LayerPair& pair) const
+{
+  if (index < 0 ||
+      static_cast<size_t>(index) >= fPairCandidateIndex.size())
+    return false;
+
+  const size_t i = static_cast<size_t>(index);
+  pair.index = fPairCandidateIndex[i];
+  pair.pulseIndexL1 = fPairCandidatePulseIndexL1[i];
+  pair.pulseIndexL2 = fPairCandidatePulseIndexL2[i];
+  pair.pmtL1 = fPairCandidatePMTL1[i];
+  pair.pmtL2 = fPairCandidatePMTL2[i];
+  pair.timeL1 = fPairCandidateTimeL1[i];
+  pair.timeL2 = fPairCandidateTimeL2[i];
+  pair.meanTime = fPairCandidateTimeMean[i];
+  pair.deltaTime = fPairCandidateDeltaTime[i];
+  pair.deltaX = fPairCandidateDeltaX[i];
+  pair.deltaY = fPairCandidateDeltaY[i];
+  pair.score = fPairCandidateScore[i];
+  pair.ecalResidual = fPairCandidateECalResidual[i];
+  pair.trajectoryResidual = fPairCandidateTrajectoryResidual[i];
+  pair.ecalScore = fPairCandidateECalScore[i];
+  pair.yTopology = fPairCandidateYTopology[i];
+  pair.greedySelected = fPairCandidateGreedySelected[i] != 0;
+  pair.selectedPairIndex = fPairCandidateSelectedPairIndex[i];
+  return true;
+}
+
+//_____________________________________________________________________________
+Bool_t SBSCDet::GetSingleLayerCandidate(
+    Int_t index, SingleLayerCandidate& candidate) const
+{
+  if (index < 0 ||
+      static_cast<size_t>(index) >= fSingleLayerCandidateIndex.size())
+    return false;
+
+  const size_t i = static_cast<size_t>(index);
+  candidate.index = fSingleLayerCandidateIndex[i];
+  candidate.pulseIndex = fSingleLayerCandidatePulseIndex[i];
+  candidate.pmt = fSingleLayerCandidatePMT[i];
+  candidate.layer = fSingleLayerCandidateLayer[i];
+  candidate.correctedLeadingEdge = fSingleLayerCandidateTime[i];
+  candidate.ecalResidual = fSingleLayerCandidateECalResidual[i];
+  candidate.xResidual = fSingleLayerCandidateXResidual[i];
+  candidate.score = fSingleLayerCandidateScore[i];
+  return true;
 }
 
 //_____________________________________________________________________________
@@ -434,6 +601,33 @@ void SBSCDet::ClearPulseCandidates()
   fPairTrajectoryResidual.clear();
   fPairECalScore.clear();
   fPairYTopology.clear();
+  fPairCandidateIndex.clear();
+  fPairCandidatePulseIndexL1.clear();
+  fPairCandidatePulseIndexL2.clear();
+  fPairCandidatePMTL1.clear();
+  fPairCandidatePMTL2.clear();
+  fPairCandidateTimeL1.clear();
+  fPairCandidateTimeL2.clear();
+  fPairCandidateTimeMean.clear();
+  fPairCandidateDeltaTime.clear();
+  fPairCandidateDeltaX.clear();
+  fPairCandidateDeltaY.clear();
+  fPairCandidateScore.clear();
+  fPairCandidateECalResidual.clear();
+  fPairCandidateTrajectoryResidual.clear();
+  fPairCandidateECalScore.clear();
+  fPairCandidateYTopology.clear();
+  fPairCandidateGreedySelected.clear();
+  fPairCandidateSelectedPairIndex.clear();
+  fSingleLayerCandidateIndex.clear();
+  fSingleLayerCandidatePulseIndex.clear();
+  fSingleLayerCandidatePMT.clear();
+  fSingleLayerCandidateLayer.clear();
+  fSingleLayerCandidateTime.clear();
+  fSingleLayerCandidateECalResidual.clear();
+  fSingleLayerCandidateXResidual.clear();
+  fSingleLayerCandidateScore.clear();
+  fROICandidateStatus = 0;
   fTimingStatus = fTimingCalibrationEnabled ? 1 : 0;
   fTimingECalClusterIndex = -1;
   fTimingECalTime = std::numeric_limits<Double_t>::quiet_NaN();
@@ -510,7 +704,10 @@ void SBSCDet::BuildPulseCandidates()
       fPulseTEIndex.push_back(static_cast<Int_t>(edge.slot));
       fPulseRow.push_back(element->GetRow());
       fPulseCol.push_back(element->GetCol());
-      fPulseLayer.push_back(element->GetLayer());
+      // The CDet geometry elements do not currently carry a reliable physical
+      // layer number. Pixel numbering is authoritative: 0--1343 is Layer 1
+      // and 1344--2687 is Layer 2.
+      fPulseLayer.push_back(element->GetID() / 1344);
       fPulseX.push_back(element->GetX());
       fPulseY.push_back(element->GetY());
       fPulseZ.push_back(element->GetZ());
@@ -647,6 +844,41 @@ void SBSCDet::BuildLayerPairs()
     else
       layer2.push_back(static_cast<Int_t>(i));
   }
+
+  // Preserve the hydrogen-study definition of an exclusive single-layer
+  // event: fully selected pulses populate exactly one layer. Such an event
+  // cannot form a two-layer pair, so every pulse passing the separately
+  // validated x-time ellipse remains available to the downstream ROI logic.
+  if (fSingleLayerEnabled && (layer1.empty() != layer2.empty())) {
+    const std::vector<Int_t>& populatedLayer = layer1.empty() ? layer2 : layer1;
+    for (const Int_t pulseIndex : populatedLayer) {
+      const Double_t xResidual = fPulseCorrectedX[pulseIndex] -
+          fPulseProjectedECalX[pulseIndex];
+      const Double_t timingResidual = fPulseECalResidual[pulseIndex];
+      if (!std::isfinite(xResidual) || !std::isfinite(timingResidual))
+        continue;
+      const Double_t xPull =
+          (xResidual - fSingleLayerResidualCenter) /
+          fSingleLayerResidualScale;
+      const Double_t timingPull =
+          (timingResidual - fSingleLayerTimingCenter) /
+          fSingleLayerTimingScale;
+      const Double_t score = xPull*xPull + timingPull*timingPull;
+      if (score > fSingleLayerRadius*fSingleLayerRadius)
+        continue;
+      fSingleLayerCandidateIndex.push_back(
+          static_cast<Int_t>(fSingleLayerCandidateIndex.size()));
+      fSingleLayerCandidatePulseIndex.push_back(pulseIndex);
+      fSingleLayerCandidatePMT.push_back(fPulsePMT[pulseIndex]);
+      fSingleLayerCandidateLayer.push_back(fPulseLayer[pulseIndex]);
+      fSingleLayerCandidateTime.push_back(fPulseLECorrected[pulseIndex]);
+      fSingleLayerCandidateECalResidual.push_back(timingResidual);
+      fSingleLayerCandidateXResidual.push_back(xResidual);
+      fSingleLayerCandidateScore.push_back(score);
+    }
+    if (!fSingleLayerCandidateIndex.empty())
+      fROICandidateStatus = layer1.empty() ? 3 : 2;
+  }
   if (layer1.empty() || layer2.empty())
     return;
 
@@ -723,8 +955,40 @@ void SBSCDet::BuildLayerPairs()
         return left.cdetScore < right.cdetScore;
       });
 
-  std::vector<Bool_t> used(fPulsePMT.size(), false);
+  // Preserve every ranked hypothesis that passed the detector-local gates.
+  // Unlike the legacy pair collection below, candidates may share pulses so
+  // that a downstream global ROI algorithm can resolve the ambiguity using
+  // information from other detectors.
   for (const Candidate& candidate : candidates) {
+    const Double_t time1 = fPulseLECorrected[candidate.pulse1];
+    const Double_t time2 = fPulseLECorrected[candidate.pulse2];
+    fPairCandidateIndex.push_back(
+        static_cast<Int_t>(fPairCandidateIndex.size()));
+    fPairCandidatePulseIndexL1.push_back(candidate.pulse1);
+    fPairCandidatePulseIndexL2.push_back(candidate.pulse2);
+    fPairCandidatePMTL1.push_back(fPulsePMT[candidate.pulse1]);
+    fPairCandidatePMTL2.push_back(fPulsePMT[candidate.pulse2]);
+    fPairCandidateTimeL1.push_back(time1);
+    fPairCandidateTimeL2.push_back(time2);
+    fPairCandidateTimeMean.push_back(0.5 * (time1 + time2));
+    fPairCandidateDeltaTime.push_back(candidate.dt);
+    fPairCandidateDeltaX.push_back(candidate.dx);
+    fPairCandidateDeltaY.push_back(candidate.dy);
+    fPairCandidateScore.push_back(candidate.cdetScore);
+    fPairCandidateECalResidual.push_back(candidate.ecalResidual);
+    fPairCandidateTrajectoryResidual.push_back(candidate.trajectoryResidual);
+    fPairCandidateECalScore.push_back(candidate.ecalScore);
+    fPairCandidateYTopology.push_back(candidate.yTopology);
+    fPairCandidateGreedySelected.push_back(0);
+    fPairCandidateSelectedPairIndex.push_back(-1);
+  }
+  if (!fPairCandidateIndex.empty())
+    fROICandidateStatus = 1;
+
+  std::vector<Bool_t> used(fPulsePMT.size(), false);
+  for (size_t candidateIndex = 0; candidateIndex < candidates.size();
+       ++candidateIndex) {
+    const Candidate& candidate = candidates[candidateIndex];
     if (used[candidate.pulse1] || used[candidate.pulse2])
       continue;
     used[candidate.pulse1] = true;
@@ -732,7 +996,8 @@ void SBSCDet::BuildLayerPairs()
     const Double_t time1 = fPulseLECorrected[candidate.pulse1];
     const Double_t time2 = fPulseLECorrected[candidate.pulse2];
     const Double_t meanTime = 0.5 * (time1 + time2);
-    fPairIndex.push_back(static_cast<Int_t>(fPairIndex.size()));
+    const Int_t selectedPairIndex = static_cast<Int_t>(fPairIndex.size());
+    fPairIndex.push_back(selectedPairIndex);
     fPairPulseIndexL1.push_back(candidate.pulse1);
     fPairPulseIndexL2.push_back(candidate.pulse2);
     fPairPMTL1.push_back(fPulsePMT[candidate.pulse1]);
@@ -748,6 +1013,8 @@ void SBSCDet::BuildLayerPairs()
     fPairTrajectoryResidual.push_back(candidate.trajectoryResidual);
     fPairECalScore.push_back(candidate.ecalScore);
     fPairYTopology.push_back(candidate.yTopology);
+    fPairCandidateGreedySelected[candidateIndex] = 1;
+    fPairCandidateSelectedPairIndex[candidateIndex] = selectedPairIndex;
     if (!fPairingAllowMultiple)
       break;
   }
