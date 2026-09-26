@@ -129,6 +129,10 @@ public:
     { return static_cast<Int_t>(fSingleLayerCandidateIndex.size()); }
   Int_t                 GetROICandidateStatus() const
     { return fROICandidateStatus; }
+  Int_t                 GetTimingStatus() const { return fTimingStatus; }
+  Int_t                 GetTimingECalClusterIndex() const
+    { return fTimingECalClusterIndex; }
+  Double_t              GetTimingECalTime() const { return fTimingECalTime; }
 
   /// Copy one event-local pulse candidate into pulse. Returns false for an
   /// invalid index. This is the supported in-process interface for consumers
@@ -319,10 +323,6 @@ protected:
   void BuildPulseCandidates();
   void BuildLayerPairs();
   void ClearPulseCandidates();
-  Int_t GetTimingStatus() const { return fTimingStatus; }
-  Int_t GetTimingECalClusterIndex() const { return fTimingECalClusterIndex; }
-  Double_t GetTimingECalTime() const { return fTimingECalTime; }
-
   ClassDef(SBSCDet,14)  // Describes scintillator plane with F1TDC as a detector
 };
 

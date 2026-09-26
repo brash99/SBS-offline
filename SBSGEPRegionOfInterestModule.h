@@ -15,6 +15,7 @@
 #include "InterStageModule.h"
 #include "TVector3.h"
 #include "TLorentzVector.h"
+#include <vector>
 
 class TClonesArray;
 class THaTrack;
@@ -37,6 +38,10 @@ public:
   Double_t GetYfpCentral() const { return fyfp_central; }
   Double_t GetThfpCentral() const { return fxpfp_central; }
   Double_t GetPhfpCentral() const { return fypfp_central; }
+  Int_t GetNumCDetHypotheses() const
+    { return static_cast<Int_t>(fCDetHypIndex.size()); }
+  Int_t GetNumCDetVertexAssociations() const
+    { return static_cast<Int_t>(fCDetVertexHypIndex.size()); }
   
 protected:
 
@@ -59,6 +64,12 @@ protected:
   Double_t fVertexZmax;
 
   Double_t fTargZ0;
+
+  // Working measurement uncertainties for diagnostic electron-ray fits.
+  Double_t fSigmaXECal;
+  Double_t fSigmaYECal;
+  Double_t fSigmaXCDet;
+  Double_t fSigmaYCDet;
   
   // Names of Earm and Parm: read from DB; I don't have a strong preference for
   // how to store these; might as well use std::string 
@@ -66,6 +77,7 @@ protected:
   std::string fParmName;
 
   std::string fEarmDetName;
+  std::string fEarmCDetName;
   std::string fParmDetName;
   std::string fParmDetNamePol;
   std::string fParmDetNameCalo;
@@ -92,6 +104,48 @@ protected:
   Double_t fyfp_central;
   Double_t fxpfp_central;
   Double_t fypfp_central;
+
+  // Read-only CDet discovery and diagnostic electron-ray hypotheses. These
+  // outputs do not alter the existing GEM constraint families.
+  Int_t fCDetFound;
+  Int_t fCDetTimingStatus;
+  Int_t fCDetROICandidateStatus;
+  Int_t fCDetNumPulseCandidates;
+  Int_t fCDetNumPairCandidates;
+  Int_t fCDetNumSingleCandidates;
+
+  std::vector<Int_t> fCDetHypIndex;
+  std::vector<Int_t> fCDetHypSourceType;
+  std::vector<Int_t> fCDetHypSourceIndex;
+  std::vector<Int_t> fCDetHypPulseIndexL1;
+  std::vector<Int_t> fCDetHypPulseIndexL2;
+  std::vector<Int_t> fCDetHypNPoints;
+  std::vector<Double_t> fCDetHypSourceScore;
+  std::vector<Double_t> fCDetHypX0;
+  std::vector<Double_t> fCDetHypXSlope;
+  std::vector<Double_t> fCDetHypXChi2;
+  std::vector<Int_t> fCDetHypXNDF;
+  std::vector<Double_t> fCDetHypY0;
+  std::vector<Double_t> fCDetHypYSlope;
+  std::vector<Double_t> fCDetHypYChi2;
+  std::vector<Int_t> fCDetHypYNDF;
+  std::vector<Double_t> fCDetHypXECalPull;
+  std::vector<Double_t> fCDetHypXL1Pull;
+  std::vector<Double_t> fCDetHypXL2Pull;
+  std::vector<Double_t> fCDetHypYECalPull;
+  std::vector<Double_t> fCDetHypYL1Pull;
+  std::vector<Double_t> fCDetHypYL2Pull;
+  std::vector<Double_t> fCDetHypThetaGlobal;
+  std::vector<Double_t> fCDetHypPhiGlobal;
+  std::vector<Double_t> fCDetHypXAtNominalTarget;
+  std::vector<Double_t> fCDetHypYAtNominalTarget;
+
+  // Flattened hypothesis/target-z-bin associations.
+  std::vector<Int_t> fCDetVertexHypIndex;
+  std::vector<Int_t> fCDetVertexBin;
+  std::vector<Double_t> fCDetVertexZ;
+  std::vector<Double_t> fCDetVertexX;
+  std::vector<Double_t> fCDetVertexY;
   
   TClonesArray *fTestTracks;
   

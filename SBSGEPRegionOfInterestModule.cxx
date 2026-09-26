@@ -15,6 +15,7 @@
 #include "SBSGEPEArm.h" //For the electron arm:
 #include "SBSEArm.h" //For the proton arm
 #include "SBSECal.h"
+#include "SBSCDet.h"
 #include "SBSHCal.h"
 #include "SBSGEMSpectrometerTracker.h"
 #include "SBSGEMPolarimeterTracker.h"
@@ -22,6 +23,54 @@
 #include "THaTrack.h"
 #include "TMath.h"
 #include "TList.h"
+#include <cmath>
+#include <limits>
+
+namespace {
+struct WeightedLineFit {
+  double intercept = 0.0;
+  double slope = 0.0;
+  double chi2 = 0.0;
+  int ndf = -1;
+  bool valid = false;
+};
+
+WeightedLineFit FitCoordinate(const std::vector<double>& z,
+                              const std::vector<double>& value,
+                              const std::vector<double>& sigma)
+{
+  WeightedLineFit fit;
+  if (z.size() < 2 || z.size() != value.size() || z.size() != sigma.size())
+    return fit;
+
+  double sw = 0.0, swz = 0.0, swzz = 0.0, swv = 0.0, swzv = 0.0;
+  for (size_t i = 0; i < z.size(); ++i) {
+    if (!std::isfinite(z[i]) || !std::isfinite(value[i]) ||
+        !std::isfinite(sigma[i]) || sigma[i] <= 0.0)
+      return fit;
+    const double weight = 1.0 / (sigma[i] * sigma[i]);
+    sw += weight;
+    swz += weight * z[i];
+    swzz += weight * z[i] * z[i];
+    swv += weight * value[i];
+    swzv += weight * z[i] * value[i];
+  }
+  const double determinant = sw * swzz - swz * swz;
+  if (!(determinant > 0.0))
+    return fit;
+
+  fit.intercept = (swzz * swv - swz * swzv) / determinant;
+  fit.slope = (sw * swzv - swz * swv) / determinant;
+  for (size_t i = 0; i < z.size(); ++i) {
+    const double pull =
+        (value[i] - fit.intercept - fit.slope * z[i]) / sigma[i];
+    fit.chi2 += pull * pull;
+  }
+  fit.ndf = static_cast<int>(z.size()) - 2;
+  fit.valid = true;
+  return fit;
+}
+}
 //_____________________________________________________________________________
 SBSGEPRegionOfInterestModule::SBSGEPRegionOfInterestModule( const char *name, const char *description, Int_t stage ) : InterStageModule(name,description,stage){
   //Constructor; for now, does nothing other than instantiate
@@ -29,6 +78,7 @@ SBSGEPRegionOfInterestModule::SBSGEPRegionOfInterestModule( const char *name, co
   fEarmName = "earm";
   fParmName = "sbs";
   fEarmDetName = "ecal";
+  fEarmCDetName = "cdet";
   fParmDetName = "gemFT";
   fParmDetNamePol = "gemFPP";
   fParmDetNameCalo = "hcal";
@@ -36,6 +86,10 @@ SBSGEPRegionOfInterestModule::SBSGEPRegionOfInterestModule( const char *name, co
   fTestTracks = new TClonesArray("THaTrack",1);
 
   fTargZ0 = 0.0;
+  fSigmaXECal = 0.006;
+  fSigmaYECal = 0.006;
+  fSigmaXCDet = 0.017973;
+  fSigmaYCDet = 0.255;
   
   fDataValid = false; 
 }
@@ -67,6 +121,43 @@ void SBSGEPRegionOfInterestModule::Clear( Option_t *opt )
   fECAL_energy = kBig;
 
   fTestTracks->Clear("C");
+
+  fCDetFound = 0;
+  fCDetTimingStatus = 0;
+  fCDetROICandidateStatus = 0;
+  fCDetNumPulseCandidates = 0;
+  fCDetNumPairCandidates = 0;
+  fCDetNumSingleCandidates = 0;
+  fCDetHypIndex.clear();
+  fCDetHypSourceType.clear();
+  fCDetHypSourceIndex.clear();
+  fCDetHypPulseIndexL1.clear();
+  fCDetHypPulseIndexL2.clear();
+  fCDetHypNPoints.clear();
+  fCDetHypSourceScore.clear();
+  fCDetHypX0.clear();
+  fCDetHypXSlope.clear();
+  fCDetHypXChi2.clear();
+  fCDetHypXNDF.clear();
+  fCDetHypY0.clear();
+  fCDetHypYSlope.clear();
+  fCDetHypYChi2.clear();
+  fCDetHypYNDF.clear();
+  fCDetHypXECalPull.clear();
+  fCDetHypXL1Pull.clear();
+  fCDetHypXL2Pull.clear();
+  fCDetHypYECalPull.clear();
+  fCDetHypYL1Pull.clear();
+  fCDetHypYL2Pull.clear();
+  fCDetHypThetaGlobal.clear();
+  fCDetHypPhiGlobal.clear();
+  fCDetHypXAtNominalTarget.clear();
+  fCDetHypYAtNominalTarget.clear();
+  fCDetVertexHypIndex.clear();
+  fCDetVertexBin.clear();
+  fCDetVertexZ.clear();
+  fCDetVertexX.clear();
+  fCDetVertexY.clear();
 }
 
 //_____________________________________________________________________________
@@ -93,6 +184,44 @@ Int_t SBSGEPRegionOfInterestModule::DefineVariables( THaAnalysisObject::EMode mo
     { "yfp0", "predicted Y at fp (assuming point target at origin)", "fyfp_central" },
     { "xpfp0", "predicted X' at fp (assuming point target at origin)", "fxpfp_central" },
     { "ypfp0", "predicted Y' at fp (assuming point target at origin)", "fypfp_central" },
+    { "cdet.found", "CDet detector found by the ROI module", "fCDetFound" },
+    { "cdet.timing_status", "CDet timing-calibration status", "fCDetTimingStatus" },
+    { "cdet.roi_status", "CDet detector-local ROI candidate status", "fCDetROICandidateStatus" },
+    { "cdet.npulse", "Number of complete CDet pulse candidates", "fCDetNumPulseCandidates" },
+    { "cdet.npair_candidate", "Number of pre-greedy CDet pair hypotheses", "fCDetNumPairCandidates" },
+    { "cdet.nsingle_candidate", "Number of exclusive single-layer CDet hypotheses", "fCDetNumSingleCandidates" },
+    { "cdet.hyp.n", "Number of diagnostic CDet electron-ray hypotheses", "GetNumCDetHypotheses()" },
+    { "cdet.hyp.index", "Event-local diagnostic hypothesis index", "fCDetHypIndex" },
+    { "cdet.hyp.source_type", "Hypothesis source: 1 pair, 2 Layer-1-only, 3 Layer-2-only", "fCDetHypSourceType" },
+    { "cdet.hyp.source_index", "Source pair_candidate or single_candidate index", "fCDetHypSourceIndex" },
+    { "cdet.hyp.pulse_index_l1", "Source Layer-1 pulse index, or -1", "fCDetHypPulseIndexL1" },
+    { "cdet.hyp.pulse_index_l2", "Source Layer-2 pulse index, or -1", "fCDetHypPulseIndexL2" },
+    { "cdet.hyp.npoints", "Number of ECal/CDet points in the fit", "fCDetHypNPoints" },
+    { "cdet.hyp.source_score", "Detector-local source-candidate score", "fCDetHypSourceScore" },
+    { "cdet.hyp.x0", "Electron-ray x intercept at electron-arm z=0 (m)", "fCDetHypX0" },
+    { "cdet.hyp.xslope", "Electron-ray dx/dz in the electron-arm frame", "fCDetHypXSlope" },
+    { "cdet.hyp.xchi2", "Resolution-weighted x fit chi-square", "fCDetHypXChi2" },
+    { "cdet.hyp.xndf", "x fit number of degrees of freedom", "fCDetHypXNDF" },
+    { "cdet.hyp.y0", "Electron-ray y intercept at electron-arm z=0 (m)", "fCDetHypY0" },
+    { "cdet.hyp.yslope", "Electron-ray dy/dz in the electron-arm frame", "fCDetHypYSlope" },
+    { "cdet.hyp.ychi2", "Resolution-weighted y fit chi-square", "fCDetHypYChi2" },
+    { "cdet.hyp.yndf", "y fit number of degrees of freedom", "fCDetHypYNDF" },
+    { "cdet.hyp.xpull_ecal", "ECal x pull in the fitted electron ray", "fCDetHypXECalPull" },
+    { "cdet.hyp.xpull_l1", "Layer-1 CDet x pull, or NaN", "fCDetHypXL1Pull" },
+    { "cdet.hyp.xpull_l2", "Layer-2 CDet x pull, or NaN", "fCDetHypXL2Pull" },
+    { "cdet.hyp.ypull_ecal", "ECal y pull in the fitted electron ray", "fCDetHypYECalPull" },
+    { "cdet.hyp.ypull_l1", "Layer-1 CDet y pull, or NaN", "fCDetHypYL1Pull" },
+    { "cdet.hyp.ypull_l2", "Layer-2 CDet y pull, or NaN", "fCDetHypYL2Pull" },
+    { "cdet.hyp.theta_global", "Fitted electron-ray global polar angle (rad)", "fCDetHypThetaGlobal" },
+    { "cdet.hyp.phi_global", "Fitted electron-ray global azimuth (rad)", "fCDetHypPhiGlobal" },
+    { "cdet.hyp.x_at_ztarg0", "Fitted x at the nominal target z (m)", "fCDetHypXAtNominalTarget" },
+    { "cdet.hyp.y_at_ztarg0", "Fitted y at the nominal target z (m)", "fCDetHypYAtNominalTarget" },
+    { "cdet.vertex.n", "Number of diagnostic hypothesis/target-z associations", "GetNumCDetVertexAssociations()" },
+    { "cdet.vertex.hyp_index", "Associated diagnostic hypothesis index", "fCDetVertexHypIndex" },
+    { "cdet.vertex.bin", "Existing target-z scan bin", "fCDetVertexBin" },
+    { "cdet.vertex.z", "Target-z scan coordinate (m)", "fCDetVertexZ" },
+    { "cdet.vertex.x", "Fitted electron-ray x at target-z bin (m)", "fCDetVertexX" },
+    { "cdet.vertex.y", "Fitted electron-ray y at target-z bin (m)", "fCDetVertexY" },
     { nullptr }
   };
 
@@ -138,10 +267,15 @@ Int_t SBSGEPRegionOfInterestModule::ReadDatabase( const TDatime &date ){
     { "earm_name", &fEarmName, kString, 0, 1, 1 },
     { "parm_name", &fParmName, kString, 0, 1, 1 },
     { "edet_name", &fEarmDetName, kString, 0, 1, 1 },
+    { "cdet_name", &fEarmCDetName, kString, 0, 1, 1 },
     { "pdet_name", &fParmDetName, kString, 0, 1, 1 },
     { "pdetpol_name", &fParmDetNamePol, kString, 0, 1, 1 },
     { "pdetcalo_name", &fParmDetNameCalo, kString, 0, 1, 1 },
     { "z0targ", &fTargZ0, kDouble, 0, 1, 1 },
+    { "sigma_x_ecal", &fSigmaXECal, kDouble, 0, 1, 1 },
+    { "sigma_y_ecal", &fSigmaYECal, kDouble, 0, 1, 1 },
+    { "sigma_x_cdet", &fSigmaXCDet, kDouble, 0, 1, 1 },
+    { "sigma_y_cdet", &fSigmaYCDet, kDouble, 0, 1, 1 },
     { nullptr }
   };
   
@@ -149,6 +283,13 @@ Int_t SBSGEPRegionOfInterestModule::ReadDatabase( const TDatime &date ){
   fclose(file);
   if( status != 0 ){
     return status;
+  }
+
+  if (fNbinsVertexZ <= 0 || fSigmaXECal <= 0.0 || fSigmaYECal <= 0.0 ||
+      fSigmaXCDet <= 0.0 || fSigmaYCDet <= 0.0) {
+    Error(Here("ReadDatabase"),
+          "invalid target-z binning or ECal/CDet position uncertainty");
+    return kInitError;
   }
 
   fIsInit = true;
@@ -166,6 +307,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
   bool gotEarm = false;
   bool gotParm = false;
   bool gotEdet = false;
+  bool gotCDet = false;
   bool gotPdet = false;
   bool gotPdetPol = false;
   bool gotPdetCalo = false;
@@ -176,6 +318,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
   SBSEArm *Parm = nullptr;
 
   SBSECal *Edet = nullptr;
+  SBSCDet *CDet = nullptr;
   SBSGEMSpectrometerTracker *Pdet = nullptr;
   SBSGEMPolarimeterTracker *PdetPol = nullptr;
 
@@ -191,6 +334,9 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
 	Edet = dynamic_cast<SBSECal*>(Earm->GetDetector(fEarmDetName.c_str()));
 
 	if( Edet ) gotEdet = true;
+
+	CDet = dynamic_cast<SBSCDet*>(Earm->GetDetector(fEarmCDetName.c_str()));
+	if( CDet ) gotCDet = true;
       }
     }
     if( app->InheritsFrom("SBSEArm") ){
@@ -210,6 +356,15 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
 	
       }
     }
+  }
+
+  fCDetFound = gotCDet ? 1 : 0;
+  if (CDet) {
+    fCDetTimingStatus = CDet->GetTimingStatus();
+    fCDetROICandidateStatus = CDet->GetROICandidateStatus();
+    fCDetNumPulseCandidates = CDet->GetNumPulseCandidates();
+    fCDetNumPairCandidates = CDet->GetNumLayerPairCandidates();
+    fCDetNumSingleCandidates = CDet->GetNumSingleLayerCandidates();
   }
 
   if( !gotParm || !gotEarm || !gotEdet || !gotPdet || !gotPdetPol || !gotPdetCalo ){
@@ -286,6 +441,125 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
   TVector3 ECALpos_global = xclust * Earm_xaxis + yclust * Earm_yaxis + ECALdist * Earm_zaxis;
   
   fECALclusterpos_global = ECALpos_global;
+
+  // Build read-only diagnostic electron-ray hypotheses from the complete
+  // detector-local CDet candidate collections. This deliberately does not
+  // modify the GEM constraints below.
+  if (CDet && CDet->GetTimingStatus() == 2) {
+    const auto appendHypothesis = [&](Int_t sourceType, Int_t sourceIndex,
+                                      Int_t pulseIndexL1, Int_t pulseIndexL2,
+                                      Double_t sourceScore) {
+      std::vector<double> z{ECALdist};
+      std::vector<double> x{xclust};
+      std::vector<double> y{yclust};
+      std::vector<double> sigmaX{fSigmaXECal};
+      std::vector<double> sigmaY{fSigmaYECal};
+      const double missing = std::numeric_limits<double>::quiet_NaN();
+      double zL1 = missing, xL1 = missing, yL1 = missing;
+      double zL2 = missing, xL2 = missing, yL2 = missing;
+
+      const auto appendPulse = [&](Int_t pulseIndex) {
+        if (pulseIndex < 0)
+          return true;
+        SBSCDet::PulseCandidate pulse;
+        if (!CDet->GetPulseCandidate(pulseIndex, pulse) ||
+            !pulse.calibrationValid || !std::isfinite(pulse.correctedX) ||
+            !std::isfinite(pulse.y) || !std::isfinite(pulse.z))
+          return false;
+        z.push_back(pulse.z);
+        x.push_back(pulse.correctedX);
+        y.push_back(pulse.y);
+        sigmaX.push_back(fSigmaXCDet);
+        sigmaY.push_back(fSigmaYCDet);
+        if (pulse.layer == 0) {
+          zL1 = pulse.z;
+          xL1 = pulse.correctedX;
+          yL1 = pulse.y;
+        } else if (pulse.layer == 1) {
+          zL2 = pulse.z;
+          xL2 = pulse.correctedX;
+          yL2 = pulse.y;
+        }
+        return true;
+      };
+
+      if (!appendPulse(pulseIndexL1) || !appendPulse(pulseIndexL2))
+        return;
+
+      const WeightedLineFit xfit = FitCoordinate(z, x, sigmaX);
+      const WeightedLineFit yfit = FitCoordinate(z, y, sigmaY);
+      if (!xfit.valid || !yfit.valid)
+        return;
+
+      const Int_t hypothesisIndex =
+          static_cast<Int_t>(fCDetHypIndex.size());
+      const TVector3 directionGlobal =
+          (xfit.slope * Earm_xaxis + yfit.slope * Earm_yaxis + Earm_zaxis)
+              .Unit();
+
+      fCDetHypIndex.push_back(hypothesisIndex);
+      fCDetHypSourceType.push_back(sourceType);
+      fCDetHypSourceIndex.push_back(sourceIndex);
+      fCDetHypPulseIndexL1.push_back(pulseIndexL1);
+      fCDetHypPulseIndexL2.push_back(pulseIndexL2);
+      fCDetHypNPoints.push_back(static_cast<Int_t>(z.size()));
+      fCDetHypSourceScore.push_back(sourceScore);
+      fCDetHypX0.push_back(xfit.intercept);
+      fCDetHypXSlope.push_back(xfit.slope);
+      fCDetHypXChi2.push_back(xfit.chi2);
+      fCDetHypXNDF.push_back(xfit.ndf);
+      fCDetHypY0.push_back(yfit.intercept);
+      fCDetHypYSlope.push_back(yfit.slope);
+      fCDetHypYChi2.push_back(yfit.chi2);
+      fCDetHypYNDF.push_back(yfit.ndf);
+      fCDetHypXECalPull.push_back(
+          (xclust - xfit.intercept - xfit.slope * ECALdist) / fSigmaXECal);
+      fCDetHypXL1Pull.push_back(std::isfinite(zL1) ?
+          (xL1 - xfit.intercept - xfit.slope * zL1) / fSigmaXCDet : missing);
+      fCDetHypXL2Pull.push_back(std::isfinite(zL2) ?
+          (xL2 - xfit.intercept - xfit.slope * zL2) / fSigmaXCDet : missing);
+      fCDetHypYECalPull.push_back(
+          (yclust - yfit.intercept - yfit.slope * ECALdist) / fSigmaYECal);
+      fCDetHypYL1Pull.push_back(std::isfinite(zL1) ?
+          (yL1 - yfit.intercept - yfit.slope * zL1) / fSigmaYCDet : missing);
+      fCDetHypYL2Pull.push_back(std::isfinite(zL2) ?
+          (yL2 - yfit.intercept - yfit.slope * zL2) / fSigmaYCDet : missing);
+      fCDetHypThetaGlobal.push_back(directionGlobal.Theta());
+      fCDetHypPhiGlobal.push_back(directionGlobal.Phi());
+      fCDetHypXAtNominalTarget.push_back(
+          xfit.intercept + xfit.slope * fTargZ0);
+      fCDetHypYAtNominalTarget.push_back(
+          yfit.intercept + yfit.slope * fTargZ0);
+
+      const double zbinwidth =
+          (fVertexZmax - fVertexZmin) / double(fNbinsVertexZ);
+      for (Int_t ibin = 0; ibin < fNbinsVertexZ; ++ibin) {
+        const double zvertex = fVertexZmin + (ibin + 0.5) * zbinwidth;
+        fCDetVertexHypIndex.push_back(hypothesisIndex);
+        fCDetVertexBin.push_back(ibin);
+        fCDetVertexZ.push_back(zvertex);
+        fCDetVertexX.push_back(xfit.intercept + xfit.slope * zvertex);
+        fCDetVertexY.push_back(yfit.intercept + yfit.slope * zvertex);
+      }
+    };
+
+    for (Int_t i = 0; i < CDet->GetNumLayerPairCandidates(); ++i) {
+      SBSCDet::LayerPair pair;
+      if (CDet->GetLayerPairCandidate(i, pair))
+        appendHypothesis(1, pair.index, pair.pulseIndexL1,
+                         pair.pulseIndexL2, pair.ecalScore);
+    }
+
+    for (Int_t i = 0; i < CDet->GetNumSingleLayerCandidates(); ++i) {
+      SBSCDet::SingleLayerCandidate single;
+      if (!CDet->GetSingleLayerCandidate(i, single))
+        continue;
+      appendHypothesis(single.layer == 0 ? 2 : 3, single.index,
+                       single.layer == 0 ? single.pulseIndex : -1,
+                       single.layer == 1 ? single.pulseIndex : -1,
+                       single.score);
+    }
+  }
   
   Pdet->SetECALpos( ECALpos_global ); //For implementation of "elastic constraint" within track-finding in the FT
   
