@@ -146,6 +146,17 @@ protected:
   std::vector<Double_t> fCDetVertexZ;
   std::vector<Double_t> fCDetVertexX;
   std::vector<Double_t> fCDetVertexY;
+  std::vector<Double_t> fCDetVertexXSlope;
+  std::vector<Double_t> fCDetVertexXChi2;
+  std::vector<Int_t> fCDetVertexXNDF;
+  std::vector<Double_t> fCDetVertexYSlope;
+  std::vector<Double_t> fCDetVertexYResidualL1;
+  std::vector<Double_t> fCDetVertexYResidualL2;
+  std::vector<Int_t> fCDetVertexYCompatibleL1;
+  std::vector<Int_t> fCDetVertexYCompatibleL2;
+  std::vector<Int_t> fCDetVertexYCompatible;
+  std::vector<Double_t> fCDetVertexThetaGlobal;
+  std::vector<Double_t> fCDetVertexPhiGlobal;
   
   TClonesArray *fTestTracks;
   

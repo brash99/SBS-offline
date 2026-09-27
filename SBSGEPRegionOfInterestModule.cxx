@@ -33,6 +33,7 @@ struct WeightedLineFit {
   double chi2 = 0.0;
   int ndf = -1;
   bool valid = false;
+  std::vector<double> standardizedResidual;
 };
 
 WeightedLineFit FitCoordinate(const std::vector<double>& z,
@@ -61,12 +62,59 @@ WeightedLineFit FitCoordinate(const std::vector<double>& z,
 
   fit.intercept = (swzz * swv - swz * swzv) / determinant;
   fit.slope = (sw * swzv - swz * swv) / determinant;
+  const double varIntercept = swzz / determinant;
+  const double covariance = -swz / determinant;
+  const double varSlope = sw / determinant;
+  fit.standardizedResidual.reserve(z.size());
+  for (size_t i = 0; i < z.size(); ++i) {
+    const double residual = value[i] - fit.intercept - fit.slope * z[i];
+    const double rawPull = residual / sigma[i];
+    fit.chi2 += rawPull * rawPull;
+    const double weight = 1.0 / (sigma[i] * sigma[i]);
+    const double leverage = weight * (varIntercept +
+        2.0 * z[i] * covariance + z[i] * z[i] * varSlope);
+    const double residualVarianceFraction = 1.0 - leverage;
+    fit.standardizedResidual.push_back(residualVarianceFraction > 1.0e-12 ?
+        rawPull / std::sqrt(residualVarianceFraction) :
+        std::numeric_limits<double>::quiet_NaN());
+  }
+  fit.ndf = static_cast<int>(z.size()) - 2;
+  fit.valid = true;
+  return fit;
+}
+
+WeightedLineFit FitCoordinateThroughPoint(const std::vector<double>& z,
+                                          const std::vector<double>& value,
+                                          const std::vector<double>& sigma,
+                                          double zAnchor,
+                                          double valueAnchor)
+{
+  WeightedLineFit fit;
+  if (z.empty() || z.size() != value.size() || z.size() != sigma.size())
+    return fit;
+
+  double numerator = 0.0;
+  double denominator = 0.0;
+  for (size_t i = 0; i < z.size(); ++i) {
+    if (!std::isfinite(z[i]) || !std::isfinite(value[i]) ||
+        !std::isfinite(sigma[i]) || sigma[i] <= 0.0)
+      return fit;
+    const double dz = z[i] - zAnchor;
+    const double weight = 1.0 / (sigma[i] * sigma[i]);
+    numerator += weight * dz * (value[i] - valueAnchor);
+    denominator += weight * dz * dz;
+  }
+  if (!(denominator > 0.0))
+    return fit;
+
+  fit.slope = numerator / denominator;
+  fit.intercept = valueAnchor - fit.slope * zAnchor;
   for (size_t i = 0; i < z.size(); ++i) {
     const double pull =
         (value[i] - fit.intercept - fit.slope * z[i]) / sigma[i];
     fit.chi2 += pull * pull;
   }
-  fit.ndf = static_cast<int>(z.size()) - 2;
+  fit.ndf = static_cast<int>(z.size()) - 1;
   fit.valid = true;
   return fit;
 }
@@ -158,6 +206,17 @@ void SBSGEPRegionOfInterestModule::Clear( Option_t *opt )
   fCDetVertexZ.clear();
   fCDetVertexX.clear();
   fCDetVertexY.clear();
+  fCDetVertexXSlope.clear();
+  fCDetVertexXChi2.clear();
+  fCDetVertexXNDF.clear();
+  fCDetVertexYSlope.clear();
+  fCDetVertexYResidualL1.clear();
+  fCDetVertexYResidualL2.clear();
+  fCDetVertexYCompatibleL1.clear();
+  fCDetVertexYCompatibleL2.clear();
+  fCDetVertexYCompatible.clear();
+  fCDetVertexThetaGlobal.clear();
+  fCDetVertexPhiGlobal.clear();
 }
 
 //_____________________________________________________________________________
@@ -206,22 +265,33 @@ Int_t SBSGEPRegionOfInterestModule::DefineVariables( THaAnalysisObject::EMode mo
     { "cdet.hyp.yslope", "Electron-ray dy/dz in the electron-arm frame", "fCDetHypYSlope" },
     { "cdet.hyp.ychi2", "Resolution-weighted y fit chi-square", "fCDetHypYChi2" },
     { "cdet.hyp.yndf", "y fit number of degrees of freedom", "fCDetHypYNDF" },
-    { "cdet.hyp.xpull_ecal", "ECal x pull in the fitted electron ray", "fCDetHypXECalPull" },
-    { "cdet.hyp.xpull_l1", "Layer-1 CDet x pull, or NaN", "fCDetHypXL1Pull" },
-    { "cdet.hyp.xpull_l2", "Layer-2 CDet x pull, or NaN", "fCDetHypXL2Pull" },
-    { "cdet.hyp.ypull_ecal", "ECal y pull in the fitted electron ray", "fCDetHypYECalPull" },
-    { "cdet.hyp.ypull_l1", "Layer-1 CDet y pull, or NaN", "fCDetHypYL1Pull" },
-    { "cdet.hyp.ypull_l2", "Layer-2 CDet y pull, or NaN", "fCDetHypYL2Pull" },
-    { "cdet.hyp.theta_global", "Fitted electron-ray global polar angle (rad)", "fCDetHypThetaGlobal" },
-    { "cdet.hyp.phi_global", "Fitted electron-ray global azimuth (rad)", "fCDetHypPhiGlobal" },
-    { "cdet.hyp.x_at_ztarg0", "Fitted x at the nominal target z (m)", "fCDetHypXAtNominalTarget" },
-    { "cdet.hyp.y_at_ztarg0", "Fitted y at the nominal target z (m)", "fCDetHypYAtNominalTarget" },
+    { "cdet.hyp.xpull_ecal", "Leverage-corrected ECal x residual, or NaN", "fCDetHypXECalPull" },
+    { "cdet.hyp.xpull_l1", "Leverage-corrected Layer-1 CDet x residual, or NaN", "fCDetHypXL1Pull" },
+    { "cdet.hyp.xpull_l2", "Leverage-corrected Layer-2 CDet x residual, or NaN", "fCDetHypXL2Pull" },
+    { "cdet.hyp.ypull_ecal", "Leverage-corrected ECal y residual, or NaN", "fCDetHypYECalPull" },
+    { "cdet.hyp.ypull_l1", "Leverage-corrected Layer-1 CDet y residual, or NaN", "fCDetHypYL1Pull" },
+    { "cdet.hyp.ypull_l2", "Leverage-corrected Layer-2 CDet y residual, or NaN", "fCDetHypYL2Pull" },
+    { "cdet.hyp.theta_global", "Free detector-only fitted global polar angle (diagnostic, rad)", "fCDetHypThetaGlobal" },
+    { "cdet.hyp.phi_global", "Free detector-only fitted global azimuth (diagnostic, rad)", "fCDetHypPhiGlobal" },
+    { "cdet.hyp.x_at_ztarg0", "Free detector-only fitted x at nominal target z (diagnostic, m)", "fCDetHypXAtNominalTarget" },
+    { "cdet.hyp.y_at_ztarg0", "Free detector-only fitted y at nominal target z (diagnostic, m)", "fCDetHypYAtNominalTarget" },
     { "cdet.vertex.n", "Number of diagnostic hypothesis/target-z associations", "GetNumCDetVertexAssociations()" },
     { "cdet.vertex.hyp_index", "Associated diagnostic hypothesis index", "fCDetVertexHypIndex" },
     { "cdet.vertex.bin", "Existing target-z scan bin", "fCDetVertexBin" },
     { "cdet.vertex.z", "Target-z scan coordinate (m)", "fCDetVertexZ" },
-    { "cdet.vertex.x", "Fitted electron-ray x at target-z bin (m)", "fCDetVertexX" },
-    { "cdet.vertex.y", "Fitted electron-ray y at target-z bin (m)", "fCDetVertexY" },
+    { "cdet.vertex.x", "Free detector-only ray x at target-z bin (diagnostic, m)", "fCDetVertexX" },
+    { "cdet.vertex.y", "Free detector-only ray y at target-z bin (diagnostic, m)", "fCDetVertexY" },
+    { "cdet.vertex.xslope", "Best dx/dz constrained through x=0 at this target-z bin", "fCDetVertexXSlope" },
+    { "cdet.vertex.xchi2", "x chi-square for the target-z-constrained ray", "fCDetVertexXChi2" },
+    { "cdet.vertex.xndf", "x NDF for the target-z-constrained ray", "fCDetVertexXNDF" },
+    { "cdet.vertex.yslope", "ECal-to-target dy/dz used only for CDet y compatibility", "fCDetVertexYSlope" },
+    { "cdet.vertex.yresidual_l1", "Layer-1 half-bar-center y residual, or NaN (m)", "fCDetVertexYResidualL1" },
+    { "cdet.vertex.yresidual_l2", "Layer-2 half-bar-center y residual, or NaN (m)", "fCDetVertexYResidualL2" },
+    { "cdet.vertex.ycompatible_l1", "Layer-1 y compatibility: -1 missing, 0 fail, 1 pass", "fCDetVertexYCompatibleL1" },
+    { "cdet.vertex.ycompatible_l2", "Layer-2 y compatibility: -1 missing, 0 fail, 1 pass", "fCDetVertexYCompatibleL2" },
+    { "cdet.vertex.ycompatible", "All available CDet layers pass half-bar y compatibility", "fCDetVertexYCompatible" },
+    { "cdet.vertex.theta_global", "Target-constrained electron-ray global polar angle (rad)", "fCDetVertexThetaGlobal" },
+    { "cdet.vertex.phi_global", "Target-constrained electron-ray global azimuth (rad)", "fCDetVertexPhiGlobal" },
     { nullptr }
   };
 
@@ -457,6 +527,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
       const double missing = std::numeric_limits<double>::quiet_NaN();
       double zL1 = missing, xL1 = missing, yL1 = missing;
       double zL2 = missing, xL2 = missing, yL2 = missing;
+      int pointIndexL1 = -1, pointIndexL2 = -1;
 
       const auto appendPulse = [&](Int_t pulseIndex) {
         if (pulseIndex < 0)
@@ -472,10 +543,12 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
         sigmaX.push_back(fSigmaXCDet);
         sigmaY.push_back(fSigmaYCDet);
         if (pulse.layer == 0) {
+          pointIndexL1 = static_cast<int>(z.size()) - 1;
           zL1 = pulse.z;
           xL1 = pulse.correctedX;
           yL1 = pulse.y;
         } else if (pulse.layer == 1) {
+          pointIndexL2 = static_cast<int>(z.size()) - 1;
           zL2 = pulse.z;
           xL2 = pulse.correctedX;
           yL2 = pulse.y;
@@ -512,18 +585,16 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
       fCDetHypYSlope.push_back(yfit.slope);
       fCDetHypYChi2.push_back(yfit.chi2);
       fCDetHypYNDF.push_back(yfit.ndf);
-      fCDetHypXECalPull.push_back(
-          (xclust - xfit.intercept - xfit.slope * ECALdist) / fSigmaXECal);
-      fCDetHypXL1Pull.push_back(std::isfinite(zL1) ?
-          (xL1 - xfit.intercept - xfit.slope * zL1) / fSigmaXCDet : missing);
-      fCDetHypXL2Pull.push_back(std::isfinite(zL2) ?
-          (xL2 - xfit.intercept - xfit.slope * zL2) / fSigmaXCDet : missing);
-      fCDetHypYECalPull.push_back(
-          (yclust - yfit.intercept - yfit.slope * ECALdist) / fSigmaYECal);
-      fCDetHypYL1Pull.push_back(std::isfinite(zL1) ?
-          (yL1 - yfit.intercept - yfit.slope * zL1) / fSigmaYCDet : missing);
-      fCDetHypYL2Pull.push_back(std::isfinite(zL2) ?
-          (yL2 - yfit.intercept - yfit.slope * zL2) / fSigmaYCDet : missing);
+      fCDetHypXECalPull.push_back(xfit.standardizedResidual[0]);
+      fCDetHypXL1Pull.push_back(pointIndexL1 >= 0 ?
+          xfit.standardizedResidual[pointIndexL1] : missing);
+      fCDetHypXL2Pull.push_back(pointIndexL2 >= 0 ?
+          xfit.standardizedResidual[pointIndexL2] : missing);
+      fCDetHypYECalPull.push_back(yfit.standardizedResidual[0]);
+      fCDetHypYL1Pull.push_back(pointIndexL1 >= 0 ?
+          yfit.standardizedResidual[pointIndexL1] : missing);
+      fCDetHypYL2Pull.push_back(pointIndexL2 >= 0 ?
+          yfit.standardizedResidual[pointIndexL2] : missing);
       fCDetHypThetaGlobal.push_back(directionGlobal.Theta());
       fCDetHypPhiGlobal.push_back(directionGlobal.Phi());
       fCDetHypXAtNominalTarget.push_back(
@@ -535,11 +606,39 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
           (fVertexZmax - fVertexZmin) / double(fNbinsVertexZ);
       for (Int_t ibin = 0; ibin < fNbinsVertexZ; ++ibin) {
         const double zvertex = fVertexZmin + (ibin + 0.5) * zbinwidth;
+        const WeightedLineFit constrainedX =
+            FitCoordinateThroughPoint(z, x, sigmaX, zvertex, 0.0);
+        const double ySlope = yclust / (ECALdist - zvertex);
+        const double yResidualL1 = std::isfinite(zL1) ?
+            yL1 - ySlope * (zL1 - zvertex) : missing;
+        const double yResidualL2 = std::isfinite(zL2) ?
+            yL2 - ySlope * (zL2 - zvertex) : missing;
+        const Int_t yCompatibleL1 = std::isfinite(yResidualL1) ?
+            (std::abs(yResidualL1) <= fSigmaYCDet ? 1 : 0) : -1;
+        const Int_t yCompatibleL2 = std::isfinite(yResidualL2) ?
+            (std::abs(yResidualL2) <= fSigmaYCDet ? 1 : 0) : -1;
+        const Int_t yCompatible =
+            (yCompatibleL1 != 0 && yCompatibleL2 != 0) ? 1 : 0;
+        const TVector3 constrainedDirectionGlobal =
+            (constrainedX.slope * Earm_xaxis + ySlope * Earm_yaxis +
+             Earm_zaxis).Unit();
+
         fCDetVertexHypIndex.push_back(hypothesisIndex);
         fCDetVertexBin.push_back(ibin);
         fCDetVertexZ.push_back(zvertex);
         fCDetVertexX.push_back(xfit.intercept + xfit.slope * zvertex);
         fCDetVertexY.push_back(yfit.intercept + yfit.slope * zvertex);
+        fCDetVertexXSlope.push_back(constrainedX.slope);
+        fCDetVertexXChi2.push_back(constrainedX.chi2);
+        fCDetVertexXNDF.push_back(constrainedX.ndf);
+        fCDetVertexYSlope.push_back(ySlope);
+        fCDetVertexYResidualL1.push_back(yResidualL1);
+        fCDetVertexYResidualL2.push_back(yResidualL2);
+        fCDetVertexYCompatibleL1.push_back(yCompatibleL1);
+        fCDetVertexYCompatibleL2.push_back(yCompatibleL2);
+        fCDetVertexYCompatible.push_back(yCompatible);
+        fCDetVertexThetaGlobal.push_back(constrainedDirectionGlobal.Theta());
+        fCDetVertexPhiGlobal.push_back(constrainedDirectionGlobal.Phi());
       }
     };
 
