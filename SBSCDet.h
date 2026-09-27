@@ -133,6 +133,12 @@ public:
   Int_t                 GetTimingECalClusterIndex() const
     { return fTimingECalClusterIndex; }
   Double_t              GetTimingECalTime() const { return fTimingECalTime; }
+  Double_t              GetSelectionYResidualOffset() const
+    { return fSelectionYResidualOffset; }
+  Double_t              GetPairingOppositeProjectedYCenter() const
+    { return fPairingOppositeProjectedYCenter; }
+  Double_t              GetPairingOppositeProjectedYMax() const
+    { return fPairingOppositeProjectedYMax; }
 
   /// Copy one event-local pulse candidate into pulse. Returns false for an
   /// invalid index. This is the supported in-process interface for consumers

@@ -181,6 +181,7 @@ void SBSGEPRegionOfInterestModule::Clear( Option_t *opt )
   fCDetHypSourceIndex.clear();
   fCDetHypPulseIndexL1.clear();
   fCDetHypPulseIndexL2.clear();
+  fCDetHypYTopology.clear();
   fCDetHypNPoints.clear();
   fCDetHypSourceScore.clear();
   fCDetHypX0.clear();
@@ -214,6 +215,7 @@ void SBSGEPRegionOfInterestModule::Clear( Option_t *opt )
   fCDetVertexYResidualL2.clear();
   fCDetVertexYCompatibleL1.clear();
   fCDetVertexYCompatibleL2.clear();
+  fCDetVertexYSeamCompatible.clear();
   fCDetVertexYCompatible.clear();
   fCDetVertexThetaGlobal.clear();
   fCDetVertexPhiGlobal.clear();
@@ -255,6 +257,7 @@ Int_t SBSGEPRegionOfInterestModule::DefineVariables( THaAnalysisObject::EMode mo
     { "cdet.hyp.source_index", "Source pair_candidate or single_candidate index", "fCDetHypSourceIndex" },
     { "cdet.hyp.pulse_index_l1", "Source Layer-1 pulse index, or -1", "fCDetHypPulseIndexL1" },
     { "cdet.hyp.pulse_index_l2", "Source Layer-2 pulse index, or -1", "fCDetHypPulseIndexL2" },
+    { "cdet.hyp.y_topology", "CDet y topology: -1 single, 0 same-side pair, 1 opposite-side seam pair", "fCDetHypYTopology" },
     { "cdet.hyp.npoints", "Number of ECal/CDet points in the fit", "fCDetHypNPoints" },
     { "cdet.hyp.source_score", "Detector-local source-candidate score", "fCDetHypSourceScore" },
     { "cdet.hyp.x0", "Electron-ray x intercept at electron-arm z=0 (m)", "fCDetHypX0" },
@@ -289,7 +292,8 @@ Int_t SBSGEPRegionOfInterestModule::DefineVariables( THaAnalysisObject::EMode mo
     { "cdet.vertex.yresidual_l2", "Layer-2 half-bar-center y residual, or NaN (m)", "fCDetVertexYResidualL2" },
     { "cdet.vertex.ycompatible_l1", "Layer-1 y compatibility: -1 missing, 0 fail, 1 pass", "fCDetVertexYCompatibleL1" },
     { "cdet.vertex.ycompatible_l2", "Layer-2 y compatibility: -1 missing, 0 fail, 1 pass", "fCDetVertexYCompatibleL2" },
-    { "cdet.vertex.ycompatible", "All available CDet layers pass half-bar y compatibility", "fCDetVertexYCompatible" },
+    { "cdet.vertex.yseam_compatible", "Opposite-side seam compatibility: -1 not applicable, 0 fail, 1 pass", "fCDetVertexYSeamCompatible" },
+    { "cdet.vertex.ycompatible", "Topology-aware CDet y compatibility", "fCDetVertexYCompatible" },
     { "cdet.vertex.theta_global", "Target-constrained electron-ray global polar angle (rad)", "fCDetVertexThetaGlobal" },
     { "cdet.vertex.phi_global", "Target-constrained electron-ray global azimuth (rad)", "fCDetVertexPhiGlobal" },
     { nullptr }
@@ -516,8 +520,9 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
   // detector-local CDet candidate collections. This deliberately does not
   // modify the GEM constraints below.
   if (CDet && CDet->GetTimingStatus() == 2) {
-    const auto appendHypothesis = [&](Int_t sourceType, Int_t sourceIndex,
+      const auto appendHypothesis = [&](Int_t sourceType, Int_t sourceIndex,
                                       Int_t pulseIndexL1, Int_t pulseIndexL2,
+                                      Int_t yTopology,
                                       Double_t sourceScore) {
       std::vector<double> z{ECALdist};
       std::vector<double> x{xclust};
@@ -575,6 +580,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
       fCDetHypSourceIndex.push_back(sourceIndex);
       fCDetHypPulseIndexL1.push_back(pulseIndexL1);
       fCDetHypPulseIndexL2.push_back(pulseIndexL2);
+      fCDetHypYTopology.push_back(yTopology);
       fCDetHypNPoints.push_back(static_cast<Int_t>(z.size()));
       fCDetHypSourceScore.push_back(sourceScore);
       fCDetHypX0.push_back(xfit.intercept);
@@ -609,16 +615,31 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
         const WeightedLineFit constrainedX =
             FitCoordinateThroughPoint(z, x, sigmaX, zvertex, 0.0);
         const double ySlope = yclust / (ECALdist - zvertex);
-        const double yResidualL1 = std::isfinite(zL1) ?
-            yL1 - ySlope * (zL1 - zvertex) : missing;
-        const double yResidualL2 = std::isfinite(zL2) ?
-            yL2 - ySlope * (zL2 - zvertex) : missing;
+        const double projectedYL1 = std::isfinite(zL1) ?
+            ySlope * (zL1 - zvertex) : missing;
+        const double projectedYL2 = std::isfinite(zL2) ?
+            ySlope * (zL2 - zvertex) : missing;
+        const double yAlignment = CDet->GetSelectionYResidualOffset();
+        const double yResidualL1 = std::isfinite(projectedYL1) ?
+            yL1 - projectedYL1 - yAlignment : missing;
+        const double yResidualL2 = std::isfinite(projectedYL2) ?
+            yL2 - projectedYL2 - yAlignment : missing;
         const Int_t yCompatibleL1 = std::isfinite(yResidualL1) ?
             (std::abs(yResidualL1) <= fSigmaYCDet ? 1 : 0) : -1;
         const Int_t yCompatibleL2 = std::isfinite(yResidualL2) ?
             (std::abs(yResidualL2) <= fSigmaYCDet ? 1 : 0) : -1;
-        const Int_t yCompatible =
-            (yCompatibleL1 != 0 && yCompatibleL2 != 0) ? 1 : 0;
+        Int_t ySeamCompatible = -1;
+        if (yTopology == 1 && std::isfinite(projectedYL1) &&
+            std::isfinite(projectedYL2)) {
+          const double alignedProjectedY =
+              0.5 * (projectedYL1 + projectedYL2) + yAlignment;
+          ySeamCompatible =
+              std::abs(alignedProjectedY -
+                       CDet->GetPairingOppositeProjectedYCenter()) <=
+                      CDet->GetPairingOppositeProjectedYMax() ? 1 : 0;
+        }
+        const Int_t yCompatible = yTopology == 1 ? ySeamCompatible :
+            ((yCompatibleL1 != 0 && yCompatibleL2 != 0) ? 1 : 0);
         const TVector3 constrainedDirectionGlobal =
             (constrainedX.slope * Earm_xaxis + ySlope * Earm_yaxis +
              Earm_zaxis).Unit();
@@ -636,6 +657,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
         fCDetVertexYResidualL2.push_back(yResidualL2);
         fCDetVertexYCompatibleL1.push_back(yCompatibleL1);
         fCDetVertexYCompatibleL2.push_back(yCompatibleL2);
+        fCDetVertexYSeamCompatible.push_back(ySeamCompatible);
         fCDetVertexYCompatible.push_back(yCompatible);
         fCDetVertexThetaGlobal.push_back(constrainedDirectionGlobal.Theta());
         fCDetVertexPhiGlobal.push_back(constrainedDirectionGlobal.Phi());
@@ -646,7 +668,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
       SBSCDet::LayerPair pair;
       if (CDet->GetLayerPairCandidate(i, pair))
         appendHypothesis(1, pair.index, pair.pulseIndexL1,
-                         pair.pulseIndexL2, pair.ecalScore);
+                         pair.pulseIndexL2, pair.yTopology, pair.ecalScore);
     }
 
     for (Int_t i = 0; i < CDet->GetNumSingleLayerCandidates(); ++i) {
@@ -656,6 +678,7 @@ Int_t SBSGEPRegionOfInterestModule::Process( const THaEvData &evdata ){
       appendHypothesis(single.layer == 0 ? 2 : 3, single.index,
                        single.layer == 0 ? single.pulseIndex : -1,
                        single.layer == 1 ? single.pulseIndex : -1,
+                       -1,
                        single.score);
     }
   }

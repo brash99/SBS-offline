@@ -119,6 +119,7 @@ protected:
   std::vector<Int_t> fCDetHypSourceIndex;
   std::vector<Int_t> fCDetHypPulseIndexL1;
   std::vector<Int_t> fCDetHypPulseIndexL2;
+  std::vector<Int_t> fCDetHypYTopology;
   std::vector<Int_t> fCDetHypNPoints;
   std::vector<Double_t> fCDetHypSourceScore;
   std::vector<Double_t> fCDetHypX0;
@@ -154,6 +155,7 @@ protected:
   std::vector<Double_t> fCDetVertexYResidualL2;
   std::vector<Int_t> fCDetVertexYCompatibleL1;
   std::vector<Int_t> fCDetVertexYCompatibleL2;
+  std::vector<Int_t> fCDetVertexYSeamCompatible;
   std::vector<Int_t> fCDetVertexYCompatible;
   std::vector<Double_t> fCDetVertexThetaGlobal;
   std::vector<Double_t> fCDetVertexPhiGlobal;
